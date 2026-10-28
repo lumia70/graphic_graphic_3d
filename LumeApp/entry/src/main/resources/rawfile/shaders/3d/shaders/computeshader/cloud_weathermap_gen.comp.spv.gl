@@ -1,0 +1,131 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct PushConstantStruct
+{
+    uint _step;
+};
+
+struct uPushConstant
+{
+    PushConstantStruct pc;
+};
+
+uniform uPushConstant CORE_PC_0;
+
+layout(binding = 11, rgba32f) uniform writeonly image2D s0_b0;
+
+vec2 Mod289(vec2 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375) * 289.0);
+}
+
+vec3 Mod289(vec3 x)
+{
+    return x - (floor(x * 0.00346020772121846675872802734375) * 289.0);
+}
+
+vec3 Permute(vec3 x)
+{
+    vec3 param = ((x * 34.0) + vec3(1.0)) * x;
+    return Mod289(param);
+}
+
+float SNoise(vec2 v)
+{
+    vec2 i = floor(v + vec2(dot(v, vec2(0.3660254180431365966796875))));
+    vec2 x0 = (v - i) + vec2(dot(i, vec2(0.211324870586395263671875)));
+    vec2 i1 = mix(vec2(0.0, 1.0), vec2(1.0, 0.0), bvec2(x0.x > x0.y));
+    vec4 x12 = x0.xyxy + vec4(0.211324870586395263671875, 0.211324870586395263671875, -0.57735025882720947265625, -0.57735025882720947265625);
+    vec4 _108 = x12;
+    vec2 _110 = _108.xy - i1;
+    x12.x = _110.x;
+    x12.y = _110.y;
+    vec2 param = i;
+    i = Mod289(param);
+    vec3 param_1 = vec3(i.y) + vec3(0.0, i1.y, 1.0);
+    vec3 param_2 = (Permute(param_1) + vec3(i.x)) + vec3(0.0, i1.x, 1.0);
+    vec3 p = Permute(param_2);
+    vec3 m = max(vec3(0.5) - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), vec3(0.0));
+    m *= m;
+    m *= m;
+    vec3 x = (fract(p * vec3(0.024390242993831634521484375)) * 2.0) - vec3(1.0);
+    vec3 h = abs(x) - vec3(0.5);
+    vec3 ox = floor(x + vec3(0.5));
+    vec3 a0 = x - ox;
+    m *= (vec3(1.792842864990234375) - (((a0 * a0) + (h * h)) * 0.8537347316741943359375));
+    vec3 g;
+    g.x = (a0.x * x0.x) + (h.x * x0.y);
+    vec2 _225 = (a0.yz * x12.xz) + (h.yz * x12.yw);
+    g.y = _225.x;
+    g.z = _225.y;
+    return 130.0 * dot(m, g);
+}
+
+float Fbm(inout vec2 p, int octaves)
+{
+    float value = 0.0;
+    float amplitude = 0.5;
+    for (int i = 0; i < octaves; i++)
+    {
+        vec2 param = p;
+        value += (amplitude * SNoise(param));
+        p *= 2.0;
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
+void main()
+{
+    ivec2 fragCoord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(s0_b0);
+    bool _287 = fragCoord.x >= size.x;
+    bool _296;
+    if (!_287)
+    {
+        _296 = fragCoord.y >= size.y;
+    }
+    else
+    {
+        _296 = _287;
+    }
+    if (_296)
+    {
+        return;
+    }
+    float time = float(CORE_PC_0.pc._step) * 0.00999999977648258209228515625;
+    vec2 uv = vec2(fragCoord) / vec2(size);
+    vec2 time_offset = vec2(0.0500000007450580596923828125, 0.0199999995529651641845703125) * time;
+    vec2 coord_low = (uv * 1.5) + time_offset;
+    vec2 param = coord_low;
+    int param_1 = 3;
+    float _334 = Fbm(param, param_1);
+    float noise_low = _334;
+    vec2 coord_warp_x = ((uv * 6.0) + time_offset) + vec2(10.0, 0.0);
+    vec2 coord_warp_y = ((uv * 6.0) + time_offset) + vec2(0.0, 10.0);
+    vec2 param_2 = coord_warp_x;
+    vec2 param_3 = coord_warp_y;
+    vec2 warp_offset = vec2(SNoise(param_2), SNoise(param_3));
+    vec2 coord_mid = ((uv * 6.0) + time_offset) + (warp_offset * 0.5);
+    vec2 param_4 = coord_mid;
+    int param_5 = 4;
+    float _372 = Fbm(param_4, param_5);
+    float noise_mid = _372;
+    vec2 coord_high = (uv * 20.0) + time_offset;
+    vec2 param_6 = coord_high;
+    int param_7 = 5;
+    float _384 = Fbm(param_6, param_7);
+    float noise_high = _384;
+    float combined_noise = ((noise_low * 0.60000002384185791015625) + (noise_mid * 0.300000011920928955078125)) + (noise_high * 0.100000001490116119384765625);
+    float remapped_noise = (combined_noise * 0.5) + 0.5;
+    float coverage = clamp((remapped_noise + 0.4000000059604644775390625) - 0.5, 0.0, 1.0);
+    coverage = smoothstep(0.4000000059604644775390625, 0.60000002384185791015625, coverage);
+    float density = ((noise_mid * 0.5) + 0.5) * coverage;
+    density = smoothstep(0.20000000298023223876953125, 0.800000011920928955078125, density);
+    float precipitation = smoothstep(0.800000011920928955078125, 0.949999988079071044921875, density) * smoothstep(0.699999988079071044921875, 0.89999997615814208984375, coverage);
+    float top_offset = ((noise_high * 0.5) + 0.5) * coverage;
+    vec4 weather_data = vec4(coverage, density, precipitation, top_offset);
+    imageStore(s0_b0, fragCoord, weather_data);
+}
+

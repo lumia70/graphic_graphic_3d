@@ -1,0 +1,344 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct DefaultMaterialLightClusterData
+{
+    uint count;
+    uint lightIndices[15];
+};
+
+struct DefaultMaterialSingleLightStruct
+{
+    vec4 pos;
+    vec4 dir;
+    vec4 color;
+    vec4 spotLightParams;
+    vec4 shadowFactors;
+    vec4 additionalFactor;
+    uvec4 flags;
+    uvec4 indices;
+};
+
+struct DefaultMaterialLightStruct
+{
+    uint directionalLightBeginIndex;
+    uint directionalLightCount;
+    uint pointLightBeginIndex;
+    uint pointLightCount;
+    uint spotLightBeginIndex;
+    uint spotLightCount;
+    uint rectLightBeginIndex;
+    uint rectLightCount;
+    uvec4 clusterSizes;
+    vec4 clusterFactors;
+    vec4 atlasSizeInvSize;
+    vec4 additionalFactors;
+    DefaultMaterialSingleLightStruct lights[64];
+    float vpcfRadius;
+    uint vpcfSampleCount;
+    uint paddings0;
+    uint paddings1;
+};
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(std140) uniform s0_b2
+{
+    DefaultMaterialLightStruct uLightData;
+} _s0_b2;
+
+layout(std140) uniform s0_b0
+{
+    DefaultCameraMatrixStruct uCameras[16];
+} _s0_b0;
+
+layout(std140) uniform s0_b1
+{
+    DefaultMaterialGeneralDataStruct uGeneralData;
+} _s0_b1;
+
+layout(binding = 11, std430) buffer s0_b3
+{
+    DefaultMaterialLightClusterData uLightClusterData[3456];
+} _s0_b3;
+
+uvec3 IdxToCoord(uint idx)
+{
+    uint z = idx / 144u;
+    uint xy = idx % 144u;
+    uint y = xy / 16u;
+    uint x = xy % 16u;
+    return uvec3(x, y, z);
+}
+
+vec2 GetNearFar(mat4 projectionMatrix)
+{
+    float a = projectionMatrix[2].z;
+    float b = projectionMatrix[3].z;
+    float near = b / (a - 1.0);
+    float far = b / (1.0 + a);
+    return vec2(near, far);
+}
+
+vec4 ScreenPointToView(vec2 screenPoint, vec2 resolution, mat4 invProj)
+{
+    vec4 ndc = vec4(((screenPoint.x / resolution.x) * 2.0) - 1.0, 1.0 - ((screenPoint.y / resolution.y) * 2.0), 0.0, 1.0);
+    vec4 view = invProj * ndc;
+    return view / vec4(view.w);
+}
+
+vec3 IntersectRayZPlane(vec3 aa, vec3 bb, float zDist)
+{
+    vec3 dir = bb - aa;
+    float tt = (zDist - dot(vec3(0.0, 0.0, -1.0), aa)) / dot(vec3(0.0, 0.0, -1.0), dir);
+    vec3 result = aa + (dir * tt);
+    return result;
+}
+
+void ClusterIdxToClusterCorners(uint clusterIdx, mat4 proj, vec2 resolution, out vec3 minCornerView, out vec3 maxCornerView)
+{
+    uvec3 coord = IdxToCoord(clusterIdx);
+    vec2 nearfar = GetNearFar(proj);
+    float zNear = nearfar.x;
+    float zFar = nearfar.y;
+    float tileSizePxX = resolution.x / 16.0;
+    float tileSizePxY = resolution.y / 9.0;
+    vec2 minPointSS = vec2(coord.xy) * vec2(tileSizePxX, tileSizePxY);
+    vec2 maxPointSS = (vec2(coord.xy) + vec2(1.0)) * vec2(tileSizePxX, tileSizePxY);
+    mat4 invProj = inverse(proj);
+    vec3 maxPointVS = ScreenPointToView(maxPointSS, resolution, invProj).xyz;
+    vec3 minPointVS = ScreenPointToView(minPointSS, resolution, invProj).xyz;
+    float tileNear = zNear * pow(zFar / zNear, float(coord.z) / 24.0);
+    float tileFar = zNear * pow(zFar / zNear, float(coord.z + 1u) / 24.0);
+    vec3 minPointNear = IntersectRayZPlane(vec3(0.0), minPointVS, tileNear);
+    vec3 minPointFar = IntersectRayZPlane(vec3(0.0), minPointVS, tileFar);
+    vec3 maxPointNear = IntersectRayZPlane(vec3(0.0), maxPointVS, tileNear);
+    vec3 maxPointFar = IntersectRayZPlane(vec3(0.0), maxPointVS, tileFar);
+    vec3 minPointView = min(minPointNear, minPointFar);
+    vec3 maxPointView = max(maxPointNear, maxPointFar);
+    minCornerView = minPointView;
+    maxCornerView = maxPointView;
+}
+
+bool ConeClusterIntersect(vec3 coneOrigin, vec3 coneDirection, float coneRange, float coneAngle, vec3 minCorner, vec3 maxCorner)
+{
+    vec3 clusterCenter = (minCorner + maxCorner) / vec3(2.0);
+    vec3 clusterSidesHalf = abs(maxCorner - minCorner) / vec3(2.0);
+    float boundSphereRadius = sqrt(((clusterSidesHalf.x * clusterSidesHalf.x) + (clusterSidesHalf.y * clusterSidesHalf.y)) + (clusterSidesHalf.z * clusterSidesHalf.z));
+    vec3 vv = clusterCenter - coneOrigin;
+    float lenSq = dot(vv, vv);
+    float v1Len = dot(vv, normalize(coneDirection));
+    float closestPointDistance = (cos(coneAngle) * sqrt(lenSq - (v1Len * v1Len))) - (v1Len * sin(coneAngle));
+    bool cullAngle = closestPointDistance > boundSphereRadius;
+    bool cullFront = v1Len > (boundSphereRadius + coneRange);
+    bool cullBack = v1Len < (-boundSphereRadius);
+    return !((cullAngle || cullFront) || cullBack);
+}
+
+bool CameraClusterSpotLightIntersect(vec3 lightPosWorld, vec3 lightDir, float range, vec3 clusterMinWorld, vec3 clusterMaxWorld, mat4 proj, mat4 view, vec3 cameraPosition, vec3 cameraForward)
+{
+    vec3 clusterCenter = (clusterMaxWorld + clusterMinWorld) / vec3(2.0);
+    vec3 lightToCluster = normalize(clusterCenter - lightPosWorld);
+    vec4 pointClip = (proj * view) * vec4(lightPosWorld, 1.0);
+    vec3 pointNDC = pointClip.xyz / vec3(pointClip.w);
+    bool _315 = any(lessThan(pointNDC, vec3(-1.0)));
+    bool _323;
+    if (!_315)
+    {
+        _323 = any(greaterThan(pointNDC, vec3(1.0)));
+    }
+    else
+    {
+        _323 = _315;
+    }
+    bool lightOutsideFrustum = _323;
+    bool lightCanCastOnCluster = dot(lightToCluster, lightDir) > 0.0;
+    vec3 clusterSidesHalf = abs(clusterMaxWorld - clusterMinWorld) / vec3(2.0);
+    float clusterSphereRadius = sqrt(((clusterSidesHalf.x * clusterSidesHalf.x) + (clusterSidesHalf.y * clusterSidesHalf.y)) + (clusterSidesHalf.z * clusterSidesHalf.z));
+    bool clusterWithinRange = length(lightPosWorld - clusterCenter) < (range + clusterSphereRadius);
+    return (lightOutsideFrustum && clusterWithinRange) && lightCanCastOnCluster;
+}
+
+uint GetLightIndexInCluster(vec3 clusterPos, DefaultMaterialLightClusterData cluster, uint lightIdx, inout uint clusterLightCount)
+{
+    if (cluster.count < 15u)
+    {
+        clusterLightCount = cluster.count + 1u;
+        return cluster.count;
+    }
+    float maxLightDist = 0.0;
+    uint maxLightIdx = 0u;
+    for (uint ii = 0u; ii < 15u; ii++)
+    {
+        DefaultMaterialLightClusterData indexable = cluster;
+        uint clIdx = indexable.lightIndices[ii];
+        float dist = length(_s0_b2.uLightData.lights[clIdx].pos.xyz - clusterPos);
+        if (dist > maxLightDist)
+        {
+            maxLightDist = dist;
+            maxLightIdx = ii;
+        }
+    }
+    float lightDist = length(_s0_b2.uLightData.lights[lightIdx].pos.xyz - clusterPos);
+    if (lightDist < maxLightDist)
+    {
+        clusterLightCount = 15u;
+        return maxLightIdx;
+    }
+    clusterLightCount = 15u;
+    return 15u;
+}
+
+bool SphereClusterIntersect(vec3 sphereCenter, float sphereRadius, vec3 minCorner, vec3 maxCorner)
+{
+    vec3 closestPoint = clamp(sphereCenter, minCorner, maxCorner);
+    float distSq = dot(closestPoint - sphereCenter, closestPoint - sphereCenter);
+    return distSq <= (sphereRadius * sphereRadius);
+}
+
+void main()
+{
+    uint clusterIdx = gl_GlobalInvocationID.x;
+    if (clusterIdx >= 3456u)
+    {
+        return;
+    }
+    DefaultMaterialLightClusterData cluster;
+    for (uint ii = 0u; ii < 15u; ii++)
+    {
+        cluster.lightIndices[ii] = 0u;
+    }
+    vec3 param;
+    vec3 param_1;
+    ClusterIdxToClusterCorners(clusterIdx, _s0_b0.uCameras[0].proj, _s0_b1.uGeneralData.viewportSizeInvViewportSize.xy, param, param_1);
+    vec3 minCorner = param;
+    vec3 maxCorner = param_1;
+    vec3 cameraPosition = _s0_b0.uCameras[0].viewInv[3].xyz;
+    vec3 cameraForward = normalize(-vec3(_s0_b0.uCameras[0].view[0].z, _s0_b0.uCameras[0].view[1].z, _s0_b0.uCameras[0].view[2].z));
+    vec4 clusterCenterPosUnproj = _s0_b0.uCameras[0].viewInv * vec4((minCorner + maxCorner) / vec3(2.0), 1.0);
+    vec3 clusterCenterPos = clusterCenterPosUnproj.xyz / vec3(clusterCenterPosUnproj.w);
+    cluster.count = 0u;
+    DefaultMaterialSingleLightStruct light;
+    uint param_2;
+    for (uint ii_1 = _s0_b2.uLightData.spotLightBeginIndex; ii_1 < (_s0_b2.uLightData.spotLightBeginIndex + _s0_b2.uLightData.spotLightCount); ii_1++)
+    {
+        light.pos = _s0_b2.uLightData.lights[ii_1].pos;
+        light.dir = _s0_b2.uLightData.lights[ii_1].dir;
+        light.color = _s0_b2.uLightData.lights[ii_1].color;
+        light.spotLightParams = _s0_b2.uLightData.lights[ii_1].spotLightParams;
+        light.shadowFactors = _s0_b2.uLightData.lights[ii_1].shadowFactors;
+        light.additionalFactor = _s0_b2.uLightData.lights[ii_1].additionalFactor;
+        light.flags = _s0_b2.uLightData.lights[ii_1].flags;
+        light.indices = _s0_b2.uLightData.lights[ii_1].indices;
+        vec3 lightPosWorld = light.pos.xyz;
+        vec3 dir = light.dir.xyz;
+        float range = light.dir.w;
+        float coneAngle = max(light.spotLightParams.x, light.spotLightParams.y);
+        vec4 minCornerUnproj = _s0_b0.uCameras[0].viewInv * vec4(minCorner, 1.0);
+        vec4 maxCornerUnproj = _s0_b0.uCameras[0].viewInv * vec4(maxCorner, 1.0);
+        vec3 minCornerWorld = minCornerUnproj.xyz / vec3(minCornerUnproj.w);
+        vec3 maxCornerWorld = maxCornerUnproj.xyz / vec3(maxCornerUnproj.w);
+        bool _692 = ConeClusterIntersect(lightPosWorld, dir, range, coneAngle, minCornerWorld, maxCornerWorld);
+        bool _708;
+        if (!_692)
+        {
+            _708 = CameraClusterSpotLightIntersect(lightPosWorld, dir, range, minCornerWorld, maxCornerWorld, _s0_b0.uCameras[0].proj, _s0_b0.uCameras[0].view, cameraPosition, cameraForward);
+        }
+        else
+        {
+            _708 = _692;
+        }
+        if (_708)
+        {
+            uint _717 = GetLightIndexInCluster(clusterCenterPos, cluster, ii_1, param_2);
+            uint clusterLightCount = param_2;
+            uint idxInCluster = _717;
+            if (idxInCluster == 15u)
+            {
+                continue;
+            }
+            cluster.lightIndices[idxInCluster] = ii_1;
+            cluster.count = clusterLightCount;
+        }
+    }
+    DefaultMaterialSingleLightStruct light_1;
+    uint param_3;
+    for (uint ii_2 = _s0_b2.uLightData.pointLightBeginIndex; ii_2 < (_s0_b2.uLightData.pointLightBeginIndex + _s0_b2.uLightData.pointLightCount); ii_2++)
+    {
+        light_1.pos = _s0_b2.uLightData.lights[ii_2].pos;
+        light_1.dir = _s0_b2.uLightData.lights[ii_2].dir;
+        light_1.color = _s0_b2.uLightData.lights[ii_2].color;
+        light_1.spotLightParams = _s0_b2.uLightData.lights[ii_2].spotLightParams;
+        light_1.shadowFactors = _s0_b2.uLightData.lights[ii_2].shadowFactors;
+        light_1.additionalFactor = _s0_b2.uLightData.lights[ii_2].additionalFactor;
+        light_1.flags = _s0_b2.uLightData.lights[ii_2].flags;
+        light_1.indices = _s0_b2.uLightData.lights[ii_2].indices;
+        vec3 lightPos = (_s0_b0.uCameras[0].view * light_1.pos).xyz;
+        float radius = light_1.dir.w;
+        if (SphereClusterIntersect(lightPos, radius, minCorner, maxCorner))
+        {
+            uint _789 = GetLightIndexInCluster(clusterCenterPos, cluster, ii_2, param_3);
+            uint clusterLightCount_1 = param_3;
+            uint idxInCluster_1 = _789;
+            if (idxInCluster_1 == 15u)
+            {
+                continue;
+            }
+            cluster.lightIndices[idxInCluster_1] = ii_2;
+            cluster.count = clusterLightCount_1;
+        }
+    }
+    _s0_b3.uLightClusterData[clusterIdx].count = cluster.count;
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[0] = cluster.lightIndices[0];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[1] = cluster.lightIndices[1];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[2] = cluster.lightIndices[2];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[3] = cluster.lightIndices[3];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[4] = cluster.lightIndices[4];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[5] = cluster.lightIndices[5];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[6] = cluster.lightIndices[6];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[7] = cluster.lightIndices[7];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[8] = cluster.lightIndices[8];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[9] = cluster.lightIndices[9];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[10] = cluster.lightIndices[10];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[11] = cluster.lightIndices[11];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[12] = cluster.lightIndices[12];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[13] = cluster.lightIndices[13];
+    _s0_b3.uLightClusterData[clusterIdx].lightIndices[14] = cluster.lightIndices[14];
+}
+

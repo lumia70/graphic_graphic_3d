@@ -1,0 +1,3 @@
+# Obfuscation rules — keep native module names
+-keep-global-name
+liblumerender

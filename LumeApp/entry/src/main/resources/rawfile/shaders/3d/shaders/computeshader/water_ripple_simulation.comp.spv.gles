@@ -1,0 +1,159 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct DefaultWaterRippleDataStruct
+{
+    uvec4 inArgs;
+    uvec2 newRipplePositions[8];
+    float newRippleDepth;
+    int rippleRadius;
+    float waterDepth;
+    float rippleFormationSpeed;
+    vec2 turbulenceFactors;
+    vec2 innerOutterRadius;
+};
+
+const ivec2 _221[4] = ivec2[](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(binding = 11, std430) readonly buffer s0_b0
+{
+    DefaultWaterRippleDataStruct rippleArgs;
+} _s0_b0;
+
+struct uPCMetadata
+{
+    vec4 uPc;
+};
+
+uniform uPCMetadata CORE_PC_0;
+
+layout(binding = 11, rgba32f) uniform readonly highp image2D s0_b1;
+layout(binding = 11, rgba32f) uniform writeonly highp image2D s0_b2;
+
+float GetNewRippleOffset(ivec2 coord, ivec2 newRipplePos, ivec2 imageDim)
+{
+    float distanceToRipple = length((vec2(coord) - vec2(newRipplePos)) / vec2(float(imageDim.x)));
+    float radius = float(_s0_b0.rippleArgs.rippleRadius) / float(imageDim.x);
+    if ((distanceToRipple <= radius) && any(notEqual(newRipplePos, ivec2(0))))
+    {
+        float tt = distanceToRipple / radius;
+        float rippleEffect = pow(1.0 - tt, _s0_b0.rippleArgs.turbulenceFactors.y) * sin(((_s0_b0.rippleArgs.turbulenceFactors.x * tt) * 0.5) * 3.1415927410125732421875);
+        return (-_s0_b0.rippleArgs.newRippleDepth) * rippleEffect;
+    }
+    else
+    {
+        return 0.0;
+    }
+}
+
+float Rand(vec2 seed)
+{
+    return fract(sin(dot(seed, vec2(12.98980045318603515625, 78.233001708984375))) * 43758.546875);
+}
+
+vec4 ComputeRipple(ivec2 coord, vec4 rippleData, float deltaTime, ivec2 imageDim, ivec2 offset)
+{
+    float previousRippleHeight = rippleData.x;
+    float previousVelocity = rippleData.y;
+    float newRippleHeight = previousRippleHeight;
+    float velocity = previousVelocity;
+    if (_s0_b0.rippleArgs.inArgs.x == 1u)
+    {
+        float nro = 0.0;
+        ivec2 pos;
+        for (int ii = 0; ii < 8; ii++)
+        {
+            pos.x = ((int(_s0_b0.rippleArgs.newRipplePositions[ii].x) - offset.x) + imageDim.x) % imageDim.x;
+            pos.y = ((int(_s0_b0.rippleArgs.newRipplePositions[ii].y) - offset.y) + imageDim.y) % imageDim.y;
+            ivec2 ripplePos = pos;
+            nro += GetNewRippleOffset(coord, ripplePos, imageDim);
+        }
+        float resolutionScale = 512.0;
+        newRippleHeight += (((nro * deltaTime) * _s0_b0.rippleArgs.rippleFormationSpeed) * (float(imageDim.x) / resolutionScale));
+        newRippleHeight = clamp(newRippleHeight, -_s0_b0.rippleArgs.waterDepth, _s0_b0.rippleArgs.waterDepth);
+        if (nro != 0.0)
+        {
+            return vec4(newRippleHeight, 0.0, 0.0, 0.0);
+        }
+    }
+    float neighborSum = 0.0;
+    int validNeighborCount = 0;
+    for (int ii_1 = 0; ii_1 < 4; ii_1++)
+    {
+        ivec2 neighborCoord = coord + _221[ii_1];
+        bool _230 = neighborCoord.x >= 0;
+        bool _236;
+        if (_230)
+        {
+            _236 = neighborCoord.y >= 0;
+        }
+        else
+        {
+            _236 = _230;
+        }
+        bool _243;
+        if (_236)
+        {
+            _243 = neighborCoord.x < imageDim.x;
+        }
+        else
+        {
+            _243 = _236;
+        }
+        bool _250;
+        if (_243)
+        {
+            _250 = neighborCoord.y < imageDim.y;
+        }
+        else
+        {
+            _250 = _243;
+        }
+        if (_250)
+        {
+            neighborSum += imageLoad(s0_b1, neighborCoord).x;
+            validNeighborCount++;
+        }
+    }
+    float neighborAverageHeight = neighborSum / float(validNeighborCount);
+    velocity += ((neighborAverageHeight - previousRippleHeight) * 2.0);
+    float randomVariance = Rand(vec2(coord) + vec2(deltaTime)) * 0.5;
+    float damping = exp((-(5.0 + randomVariance)) * deltaTime);
+    velocity *= damping;
+    newRippleHeight += velocity;
+    return vec4(clamp(newRippleHeight, -_s0_b0.rippleArgs.waterDepth, _s0_b0.rippleArgs.waterDepth), velocity, 0.0, 0.0);
+}
+
+void main()
+{
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imageDim = ivec2(_s0_b0.rippleArgs.inArgs.zw);
+    if (any(greaterThan(xy, (imageDim - ivec2(1)))))
+    {
+        return;
+    }
+    vec2 planeOffset = vec2(CORE_PC_0.uPc.z, CORE_PC_0.uPc.w);
+    ivec2 offset = ivec2(int(planeOffset.x), int(planeOffset.y));
+    ivec2 writePos = xy + offset;
+    if (any(greaterThan(writePos, (imageDim - ivec2(1)))))
+    {
+        return;
+    }
+    float deltaTime = CORE_PC_0.uPc.x;
+    vec4 prevBufferValue = imageLoad(s0_b1, xy);
+    vec2 center = vec2(imageDim) / vec2(2.0);
+    vec2 fromCenter = abs(vec2(xy) - center);
+    float dist = max(fromCenter.x, fromCenter.y);
+    vec2 borders = _s0_b0.rippleArgs.innerOutterRadius * center;
+    float vignette = smoothstep(borders.x, borders.y, dist);
+    vec4 heightVelocity = ComputeRipple(xy, prevBufferValue, deltaTime, imageDim, offset);
+    vec4 finalColor = mix(heightVelocity, vec4(0.0), vec4(vignette));
+    imageStore(s0_b2, writePos, finalColor);
+}
+

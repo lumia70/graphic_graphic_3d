@@ -1,0 +1,161 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct StructureTensor
+{
+    float edgeStrength;
+    float coherence;
+    float isotropy;
+    vec2 principalDir;
+    vec2 orthogonalDir;
+};
+
+struct UpscalePushConstantStruct
+{
+    vec4 inputSize;
+    vec4 outputSize;
+    float smoothScale;
+    float structureSensitivity;
+    float edgeSharpness;
+    float padding;
+};
+
+const ivec2 _246[5] = ivec2[](ivec2(0), ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1));
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPushConstantBlock
+{
+    UpscalePushConstantStruct uPc;
+};
+
+uniform uPushConstantBlock CORE_PC_0;
+
+uniform highp sampler2D s0_b1_s0_b2;
+uniform highp sampler2D s0_b0_s0_b2;
+
+layout(location = 0) out vec4 FragColor;
+
+StructureTensor LoadStructureTensor(vec2 uv)
+{
+    vec4 tensorData = texture(s0_b1_s0_b2, uv);
+    float principalAngle = tensorData.x;
+    StructureTensor st;
+    st.coherence = tensorData.y;
+    st.edgeStrength = tensorData.z;
+    st.isotropy = tensorData.w;
+    st.principalDir = vec2(cos(principalAngle), sin(principalAngle));
+    st.orthogonalDir = vec2(-sin(principalAngle), cos(principalAngle));
+    return st;
+}
+
+vec3 TensorUpscale(vec2 subPixelPos, ivec2 inputPixelInt, StructureTensor st)
+{
+    vec2 centeredPos = subPixelPos - vec2(0.5);
+    float projPrincipal = dot(centeredPos, st.principalDir);
+    float projOrthogonal = dot(centeredPos, st.orthogonalDir);
+    vec3 result = vec3(0.0);
+    float totalWeight = 0.0;
+    ivec2 centerCoord = clamp(inputPixelInt, ivec2(0), ivec2(CORE_PC_0.uPc.inputSize.xy) - ivec2(1));
+    vec2 centerUV = (vec2(centerCoord) + vec2(0.5)) * CORE_PC_0.uPc.inputSize.zw;
+    float strengthFactor = clamp(st.edgeStrength * 2.0, 0.100000001490116119384765625, 1.0);
+    float coherenceContribution = mix(0.800000011920928955078125, 0.300000011920928955078125, st.coherence);
+    float strengthModulation = mix(1.0, 0.699999988079071044921875, strengthFactor);
+    float isotropicSigma = (0.5 * coherenceContribution) * strengthModulation;
+    float anisotropicPrincipalSigma = ((0.5 * coherenceContribution) * strengthModulation) * 0.60000002384185791015625;
+    float anisotropicOrthogonalSigma = 0.5 * mix(0.800000011920928955078125, 1.7999999523162841796875, st.coherence * strengthFactor);
+    float adjustedIsotropy = clamp(st.isotropy * (2.0 - clamp(CORE_PC_0.uPc.structureSensitivity, 0.0, 2.0)), 0.0, 1.0);
+    float principalSigma = pow(mix(anisotropicPrincipalSigma, isotropicSigma, adjustedIsotropy), CORE_PC_0.uPc.edgeSharpness);
+    float orthogonalSigma = pow(mix(anisotropicOrthogonalSigma, isotropicSigma, adjustedIsotropy), CORE_PC_0.uPc.edgeSharpness);
+    float baseColorSigma = mix(0.5, 0.0500000007450580596923828125, st.coherence * strengthFactor);
+    float colorSigma = mix(baseColorSigma, baseColorSigma * 1.5, adjustedIsotropy);
+    vec3 offsetSamples[5] = vec3[](textureOffset(s0_b0_s0_b2, centerUV, ivec2(0)).xyz, textureOffset(s0_b0_s0_b2, centerUV, ivec2(-1, 0)).xyz, textureOffset(s0_b0_s0_b2, centerUV, ivec2(1, 0)).xyz, textureOffset(s0_b0_s0_b2, centerUV, ivec2(0, -1)).xyz, textureOffset(s0_b0_s0_b2, centerUV, ivec2(0, 1)).xyz);
+    vec3 _275;
+    for (int ii = 0; ii < 5; ii++)
+    {
+        vec2 sampleOffset = vec2(_246[ii]);
+        ivec2 sampleCoord = inputPixelInt + ivec2(sampleOffset);
+        bool _262 = all(greaterThanEqual(sampleCoord, ivec2(0)));
+        bool _272;
+        if (_262)
+        {
+            _272 = all(lessThan(sampleCoord, ivec2(CORE_PC_0.uPc.inputSize.xy)));
+        }
+        else
+        {
+            _272 = _262;
+        }
+        bool isValidSample = _272;
+        if (isValidSample)
+        {
+            _275 = offsetSamples[ii];
+        }
+        else
+        {
+            _275 = offsetSamples[0];
+        }
+        vec3 colorSample = _275;
+        float samplePrincipal = dot(sampleOffset, st.principalDir);
+        float sampleOrthogonal = dot(sampleOffset, st.orthogonalDir);
+        float distPrincipal = samplePrincipal - projPrincipal;
+        float distOrthogonal = sampleOrthogonal - projOrthogonal;
+        float weightPrincipal = exp(((-0.5) * (distPrincipal * distPrincipal)) / principalSigma);
+        float weightOrthogonal = exp(((-0.5) * (distOrthogonal * distOrthogonal)) / orthogonalSigma);
+        float directionalSpatialWeight = weightPrincipal * weightOrthogonal;
+        float isotropicSpatialWeight = exp(((-0.5) * dot(vec2(distPrincipal, distOrthogonal), vec2(distPrincipal, distOrthogonal))) / (isotropicSigma * isotropicSigma));
+        float spatialWeight = mix(directionalSpatialWeight, isotropicSpatialWeight, adjustedIsotropy * 0.300000011920928955078125);
+        vec3 colorDiff = colorSample - offsetSamples[0];
+        float colorDistSq = dot(colorDiff, colorDiff);
+        float colorWeight = exp((-colorDistSq) / (colorSigma * colorSigma));
+        float baseColorInfluence = mix(0.20000000298023223876953125, 0.60000002384185791015625, st.coherence * strengthFactor);
+        float colorInfluence = mix(baseColorInfluence, baseColorInfluence * 0.699999988079071044921875, adjustedIsotropy);
+        float boundsWeight = isValidSample ? 1.0 : 0.5;
+        float finalWeight = (spatialWeight * mix(1.0, colorWeight, clamp(colorInfluence, 0.0, 1.0))) * boundsWeight;
+        result += (colorSample * finalWeight);
+        totalWeight += finalWeight;
+    }
+    vec3 _396;
+    if (totalWeight > 9.9999999747524270787835121154785e-07)
+    {
+        _396 = result / vec3(totalWeight);
+    }
+    else
+    {
+        _396 = offsetSamples[0];
+    }
+    return _396;
+}
+
+void main()
+{
+    ivec2 outputCoord = ivec2(gl_FragCoord.xy);
+    ivec2 iOutputSize = ivec2(CORE_PC_0.uPc.outputSize.xy);
+    bool _423 = any(greaterThanEqual(outputCoord, iOutputSize));
+    bool _430;
+    if (!_423)
+    {
+        _430 = any(lessThan(outputCoord, ivec2(0)));
+    }
+    else
+    {
+        _430 = _423;
+    }
+    if (_430)
+    {
+        return;
+    }
+    vec2 inputTexelUV = (vec2(outputCoord) + vec2(0.5)) * CORE_PC_0.uPc.outputSize.zw;
+    vec2 inputPixel = (inputTexelUV * CORE_PC_0.uPc.inputSize.xy) - vec2(0.5);
+    ivec2 inputPixelInt = ivec2(floor(inputPixel));
+    vec2 subPixelOffset = fract(inputPixel);
+    vec2 centerUV = (vec2(inputPixelInt) + vec2(0.5)) * CORE_PC_0.uPc.inputSize.zw;
+    StructureTensor st = LoadStructureTensor(centerUV);
+    vec3 reconstructedColor = TensorUpscale(subPixelOffset, inputPixelInt, st);
+    FragColor = vec4(reconstructedColor, 1.0);
+}
+

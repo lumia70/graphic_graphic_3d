@@ -1,0 +1,40 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct PushConstantStruct
+{
+    vec4 texSizeInvTexSize;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPushConstant
+{
+    PushConstantStruct uPc;
+};
+
+uniform uPushConstant CORE_PC_0;
+
+uniform highp sampler2D s0_b1_s0_b0;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    vec2 ts = CORE_PC_0.uPc.texSizeInvTexSize.zw * 2.0;
+    vec2 uv = inUv;
+    vec4 color = textureLod(s0_b1_s0_b0, uv, 0.0) * 0.5;
+    color += (textureLod(s0_b1_s0_b0, uv - ts, 0.0) * 0.125);
+    color += (textureLod(s0_b1_s0_b0, uv + vec2(ts.x, -ts.y), 0.0) * 0.125);
+    color += (textureLod(s0_b1_s0_b0, uv + vec2(-ts.x, ts.y), 0.0) * 0.125);
+    color += (textureLod(s0_b1_s0_b0, uv + ts, 0.0) * 0.125);
+    outColor = color;
+}
+

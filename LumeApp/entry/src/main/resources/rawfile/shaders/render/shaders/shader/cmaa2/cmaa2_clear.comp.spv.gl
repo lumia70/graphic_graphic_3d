@@ -1,0 +1,31 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct ControlBufferStruct
+{
+    uint itemCount;
+    uint shapeCandidateCount;
+    uint blendLocationCount;
+    uint deferredBlendItemCount;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(binding = 11, std430) buffer s0_b0
+{
+    ControlBufferStruct controlBuffer;
+} _s0_b0;
+
+void main()
+{
+    _s0_b0.controlBuffer.itemCount = 0u;
+    _s0_b0.controlBuffer.shapeCandidateCount = 0u;
+    _s0_b0.controlBuffer.blendLocationCount = 0u;
+    _s0_b0.controlBuffer.deferredBlendItemCount = 0u;
+}
+

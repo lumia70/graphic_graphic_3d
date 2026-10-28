@@ -1,0 +1,1292 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+struct InputBrdfData
+{
+    vec4 f0;
+    vec3 diffuseColor;
+    float roughness;
+    float alpha2;
+};
+
+struct ShadingData
+{
+    vec3 pos;
+    vec3 N;
+    float NoV;
+    vec3 V;
+    float alpha2;
+    vec4 f0;
+    vec3 diffuseColor;
+};
+
+struct FogLayer
+{
+    float density;
+    float fallOff;
+    float offset;
+};
+
+struct FullGBufferData
+{
+    mediump vec4 baseColor;
+    vec3 normal;
+    float ao;
+    vec4 material;
+    uint materialType;
+    uint materialFlags;
+};
+
+struct DefaultMaterialSingleLightStruct
+{
+    vec4 pos;
+    vec4 dir;
+    vec4 color;
+    vec4 spotLightParams;
+    vec4 shadowFactors;
+    vec4 additionalFactor;
+    uvec4 flags;
+    uvec4 indices;
+};
+
+struct DefaultMaterialLightStruct
+{
+    uint directionalLightBeginIndex;
+    uint directionalLightCount;
+    uint pointLightBeginIndex;
+    uint pointLightCount;
+    uint spotLightBeginIndex;
+    uint spotLightCount;
+    uint rectLightBeginIndex;
+    uint rectLightCount;
+    uvec4 clusterSizes;
+    vec4 clusterFactors;
+    vec4 atlasSizeInvSize;
+    vec4 additionalFactors;
+    DefaultMaterialSingleLightStruct lights[64];
+    float vpcfRadius;
+    uint vpcfSampleCount;
+    uint paddings0;
+    uint paddings1;
+};
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_2
+#define SPIRV_CROSS_CONSTANT_ID_2 0u
+#endif
+const uint CORE_LIGHTING_FLAGS = SPIRV_CROSS_CONSTANT_ID_2;
+const uint _2066 = (CORE_LIGHTING_FLAGS & 1u);
+const bool _2067 = (_2066 == 1u);
+const uint _2084 = (CORE_LIGHTING_FLAGS & 16u);
+const bool _2085 = (_2084 == 16u);
+const uint _2135 = (CORE_LIGHTING_FLAGS & 4u);
+const bool _2136 = (_2135 == 4u);
+const uint _2210 = (CORE_LIGHTING_FLAGS & 1u);
+const bool _2211 = (_2210 == 1u);
+const uint _2227 = (CORE_LIGHTING_FLAGS & 16u);
+const bool _2228 = (_2227 == 16u);
+const uint _2322 = (CORE_LIGHTING_FLAGS & 2u);
+const bool _2323 = (_2322 == 2u);
+const uint _2400 = (CORE_LIGHTING_FLAGS & 8u);
+const bool _2401 = (_2400 == 8u);
+
+struct DefaultMaterialFogStruct
+{
+    uvec4 indices;
+    vec4 firstLayer;
+    vec4 secondLayer;
+    vec4 baseFactors;
+    vec4 inscatteringColor;
+    vec4 envMapFactor;
+    vec4 additionalFactor;
+};
+
+struct DefaultMaterialEnvironmentStruct
+{
+    vec4 indirectSpecularColorFactor;
+    vec4 indirectDiffuseColorFactor;
+    vec4 envMapColorFactor;
+    vec4 values;
+    vec4 blendFactor;
+    mat4 envRotation;
+    uvec4 indices;
+    vec4 shIndirectCoefficients[9];
+    uvec4 multiEnvIndices;
+    vec4 packedSun;
+    vec4 packedPhases;
+    vec4 groundColor;
+    vec4 aerialPerspectiveParams;
+    vec4 skySunParams;
+    vec4 skySunColor;
+    vec4 skyMoonNightParams;
+    vec4 skyMoonColor;
+    vec4 padding[4];
+};
+
+const uint _2999 = (CORE_LIGHTING_FLAGS & 1u);
+const bool _3000 = (_2999 == 1u);
+const uint _3033 = (CORE_LIGHTING_FLAGS & 4u);
+const bool _3034 = (_3033 == 4u);
+const uint _3116 = (CORE_LIGHTING_FLAGS & 1u);
+const bool _3117 = (_3116 == 1u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_4
+#define SPIRV_CROSS_CONSTANT_ID_4 0u
+#endif
+const uint CORE_CAMERA_FLAGS = SPIRV_CROSS_CONSTANT_ID_4;
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct LocalPostProcessStruct
+{
+    vec4 factors[16];
+};
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+
+struct DefaultMaterialLightClusterData
+{
+    uint count;
+    uint lightIndices[15];
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+
+layout(std140) uniform s0_b6
+{
+    DefaultMaterialLightStruct uLightData;
+} _s0_b6;
+
+layout(std140) uniform s0_b2
+{
+    DefaultCameraMatrixStruct uCameras[16];
+} _s0_b2;
+
+layout(std140) uniform s0_b5
+{
+    DefaultMaterialFogStruct uFogData;
+} _s0_b5;
+
+layout(std140) uniform s0_b4
+{
+    DefaultMaterialEnvironmentStruct uEnvironmentData;
+} _s0_b4;
+
+layout(std140) uniform s0_b3
+{
+    DefaultMaterialGeneralDataStruct uGeneralData;
+} _s0_b3;
+
+uniform highp sampler2D s0_b10;
+uniform highp sampler2DShadow s0_b11;
+uniform highp sampler2D s1_b3;
+uniform highp sampler2D s1_b2;
+uniform highp sampler2D s1_b1;
+uniform highp sampler2D s1_b0;
+uniform highp samplerCube s0_b12;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+float GetUnpackDepthBuffer(float depthSample)
+{
+    return depthSample;
+}
+
+float GetSampledDepthBuffer(vec2 uv)
+{
+    float param = texelFetch(s1_b0, ivec2(gl_FragCoord.xy), 0).x;
+    return GetUnpackDepthBuffer(param);
+}
+
+uint GetMaterialFlagsFromDeferredMaterialFlags(uint materialFlags)
+{
+    uint mat = 0u;
+    mat |= uint(int((materialFlags & 1u) == 1u));
+    mat |= uint(((materialFlags & 2u) == 2u) ? 1024 : 0);
+    mat |= uint(((materialFlags & 4u) == 4u) ? 2048 : 0);
+    return mat;
+}
+
+void GetUnpackMaterialWithFlags(vec4 inMat, inout vec4 material, inout uint materialType, out uint materialFlags)
+{
+    material = inMat;
+    uint mat = uint(round(material.x * 255.0));
+    materialType = mat & 7u;
+    uint param = mat >> uint(3);
+    materialFlags = GetMaterialFlagsFromDeferredMaterialFlags(param);
+    if (materialType == 0u)
+    {
+        material.w *= 0.100000001490116119384765625;
+    }
+}
+
+FullGBufferData GetUnpackMaterialValues(vec2 uv)
+{
+    FullGBufferData fd;
+    fd.material = vec4(0.0, 1.0, 1.0, 0.039999999105930328369140625);
+    fd.baseColor = vec4(0.0, 0.0, 0.0, 1.0);
+    fd.normal = vec3(0.0, 1.0, 0.0);
+    fd.ao = 1.0;
+    fd.materialType = 0u;
+    fd.materialFlags = 0u;
+    vec4 param = texelFetch(s1_b3, ivec2(gl_FragCoord.xy), 0);
+    vec4 param_1;
+    uint param_2;
+    uint param_3;
+    GetUnpackMaterialWithFlags(param, param_1, param_2, param_3);
+    fd.material = param_1;
+    fd.materialType = param_2;
+    fd.materialFlags = param_3;
+    return fd;
+}
+
+void GetUnpackBaseColorWithAo(vec4 col, out vec3 color, out float ao)
+{
+    color = col.xyz;
+    ao = col.w;
+}
+
+vec4 GetSampledBaseColor(vec2 uv)
+{
+    vec4 color = vec4(0.0);
+    vec4 param = texelFetch(s1_b2, ivec2(gl_FragCoord.xy), 0);
+    vec3 param_1;
+    float param_2;
+    GetUnpackBaseColorWithAo(param, param_1, param_2);
+    color.x = param_1.x;
+    color.y = param_1.y;
+    color.z = param_1.z;
+    color.w = param_2;
+    return color;
+}
+
+vec4 UnlitBasic()
+{
+    vec4 color = GetSampledBaseColor(inUv);
+    return vec4(color.xyz, 1.0);
+}
+
+vec3 NormalOctDecode(inout vec2 f)
+{
+    f = (f * 2.0) - vec2(1.0);
+    vec3 n = vec3(f.x, f.y, (1.0 - abs(f.x)) - abs(f.y));
+    float t = clamp(-n.z, 0.0, 1.0);
+    float _529;
+    if (n.x >= 0.0)
+    {
+        _529 = -t;
+    }
+    else
+    {
+        _529 = t;
+    }
+    float _540;
+    if (n.y >= 0.0)
+    {
+        _540 = -t;
+    }
+    else
+    {
+        _540 = t;
+    }
+    vec3 _549 = n;
+    vec2 _551 = _549.xy + vec2(_529, _540);
+    n.x = _551.x;
+    n.y = _551.y;
+    return normalize(n);
+}
+
+void GetUnpackVelocityAndNormal(vec4 _packed, out vec2 velocity, out vec3 normal)
+{
+    velocity = _packed.xy;
+    vec2 param = _packed.zw;
+    vec3 _624 = NormalOctDecode(param);
+    normal = _624;
+}
+
+void GetSimpleSampledGBuffer(vec2 uv, inout FullGBufferData fd)
+{
+    vec4 param = texelFetch(s1_b1, ivec2(gl_FragCoord.xy), 0);
+    vec2 param_1;
+    vec3 param_2;
+    GetUnpackVelocityAndNormal(param, param_1, param_2);
+    vec2 vel = param_1;
+    fd.normal = param_2;
+    fd.normal = normalize(fd.normal);
+}
+
+uint GetUnpackCameraIndex(DefaultMaterialGeneralDataStruct dmgds)
+{
+    return dmgds.indices.x;
+}
+
+vec3 GetWorldPos(uint cameraIdx, float depthSample, vec2 uv)
+{
+    mat4 projInv = _s0_b2.uCameras[cameraIdx].projInv;
+    vec4 sceneProj = vec4((uv * 2.0) - vec2(1.0), depthSample, 1.0);
+    vec4 sceneView = _s0_b2.uCameras[cameraIdx].viewProjInv * sceneProj;
+    return sceneView.xyz / vec3(sceneView.w);
+}
+
+mat4 GetShadowMatrix(uint shadowCamIdx)
+{
+    return _s0_b2.uCameras[shadowCamIdx].shadowViewProj;
+}
+
+bool ValidShadowRange(vec3 shadowCoord, float stepSize, float shadowIdx, float texelSizeX)
+{
+    float xMin = stepSize * shadowIdx;
+    float xMax = xMin + stepSize;
+    bool _1188 = shadowCoord.z > 0.0;
+    bool _1194;
+    if (_1188)
+    {
+        _1194 = shadowCoord.x > xMin;
+    }
+    else
+    {
+        _1194 = _1188;
+    }
+    bool _1202;
+    if (_1194)
+    {
+        _1202 = shadowCoord.x < (xMax - (texelSizeX * 2.0));
+    }
+    else
+    {
+        _1202 = _1194;
+    }
+    return _1202;
+}
+
+float LinstepVsm(float minVal, float maxVal, float v)
+{
+    return clamp((v - minVal) / (maxVal - minVal), 0.0, 1.0);
+}
+
+float ReduceLightBleedingVsm(float pMax, float amount)
+{
+    float param = amount;
+    float param_1 = 1.0;
+    float param_2 = pMax;
+    return LinstepVsm(param, param_1, param_2);
+}
+
+float CalcVsmShadow(highp sampler2D shadow, vec4 inShadowCoord, float NoL, vec4 shadowFactors, vec4 atlasSizeInvSize, uvec2 shadowFlags)
+{
+    vec3 shadowCoord = inShadowCoord.xyz / vec3(inShadowCoord.w);
+    mediump float light = 1.0;
+    float param = shadowFactors.w;
+    float param_1 = float(shadowFlags.x);
+    if (ValidShadowRange(shadowCoord, param, param_1, 0.0))
+    {
+        vec2 moments = texture(shadow, shadowCoord.xy).xy;
+        if (shadowCoord.z > moments.x)
+        {
+            float variance = moments.y - (moments.x * moments.x);
+            variance = max(variance, 9.9999997473787516355514526367188e-06);
+            float d = shadowCoord.z - moments.x;
+            light = variance / (variance + (d * d));
+            float param_2 = light;
+            float param_3 = 0.20000000298023223876953125;
+            light = ReduceLightBleedingVsm(param_2, param_3);
+            light = 1.0 - ((1.0 - light) * shadowFactors.x);
+        }
+    }
+    float _1836 = light;
+    return _1836;
+}
+
+vec2 ComputeReceiverPlaneDepthBias(vec3 uvDdx, vec3 uvDdy)
+{
+    vec2 uvBias;
+    uvBias.x = (uvDdy.y * uvDdx.z) - (uvDdx.y * uvDdy.z);
+    uvBias.y = (uvDdx.x * uvDdy.z) - (uvDdy.x * uvDdx.z);
+    uvBias *= (1.0 / ((uvDdx.x * uvDdy.y) - (uvDdx.y * uvDdy.x)));
+    return uvBias;
+}
+
+float GetPcfSample(highp sampler2DShadow shadow, vec2 baseUv, vec2 offset, float compareDepth, vec2 texelSize, vec2 receiverPlaneDepthBias)
+{
+    vec2 uvOffset = offset * texelSize;
+    float compZ = compareDepth + dot(uvOffset, receiverPlaneDepthBias);
+    vec3 _1079 = vec3(baseUv + uvOffset, compZ);
+    return texture(shadow, vec3(_1079.xy, _1079.z));
+}
+
+float CalcPcfShadow(highp sampler2DShadow shadow, vec4 inShadowCoord, float NoL, vec4 shadowFactor, vec4 atlasSizeInvSize, uvec2 shadowFlags)
+{
+    vec3 shadowCoord = inShadowCoord.xyz / vec3(inShadowCoord.w);
+    mediump float light = 1.0;
+    float param = shadowFactor.w;
+    float param_1 = float(shadowFlags.x);
+    if (ValidShadowRange(shadowCoord, param, param_1, atlasSizeInvSize.z))
+    {
+        vec2 _textureSize = atlasSizeInvSize.xy;
+        vec2 texelSize = atlasSizeInvSize.zw;
+        float normalBias = shadowFactor.z;
+        float depthBias = shadowFactor.y;
+        float bias = max(normalBias * (1.0 - NoL), depthBias);
+        vec2 uv = (shadowCoord.xy * _textureSize) + vec2(0.5);
+        vec2 baseUv = (floor(uv) - vec2(0.5)) * texelSize;
+        float fracS = fract(uv.x);
+        float fracT = fract(uv.y);
+        vec3 shadowDdx = dFdx(shadowCoord);
+        vec3 shadowDdy = dFdy(shadowCoord);
+        vec2 receiverPlaneDepthBias = ComputeReceiverPlaneDepthBias(shadowDdx, shadowDdy);
+        float fSamplingError = min(dot(abs(receiverPlaneDepthBias), texelSize), 0.0005000000237487256526947021484375);
+        float compareDepth = (shadowCoord.z - bias) - fSamplingError;
+        float uw0 = 4.0 - (3.0 * fracS);
+        float uw2 = 1.0 + (3.0 * fracS);
+        float u0 = ((3.0 - (2.0 * fracS)) / uw0) - 2.0;
+        float u1 = (3.0 + fracS) / 7.0;
+        float u2 = (fracS / uw2) + 2.0;
+        float vw0 = 4.0 - (3.0 * fracT);
+        float vw2 = 1.0 + (3.0 * fracT);
+        float v0 = ((3.0 - (2.0 * fracT)) / vw0) - 2.0;
+        float v1 = (3.0 + fracT) / 7.0;
+        float v2 = (fracT / vw2) + 2.0;
+        mediump float sum = 0.0;
+        sum += ((uw0 * vw0) * GetPcfSample(shadow, baseUv, vec2(u0, v0), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum += ((7.0 * vw0) * GetPcfSample(shadow, baseUv, vec2(u1, v0), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum += ((uw2 * vw0) * GetPcfSample(shadow, baseUv, vec2(u2, v0), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum += ((uw0 * 7.0) * GetPcfSample(shadow, baseUv, vec2(u0, v1), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum += (49.0 * GetPcfSample(shadow, baseUv, vec2(u1, v1), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum += ((uw2 * 7.0) * GetPcfSample(shadow, baseUv, vec2(u2, v1), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum += ((uw0 * vw2) * GetPcfSample(shadow, baseUv, vec2(u0, v2), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum += ((7.0 * vw2) * GetPcfSample(shadow, baseUv, vec2(u1, v2), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum += ((uw2 * vw2) * GetPcfSample(shadow, baseUv, vec2(u2, v2), compareDepth, texelSize, receiverPlaneDepthBias));
+        sum *= 0.0069444444961845874786376953125;
+        light = 1.0 - (sum * shadowFactor.x);
+    }
+    float _1746 = light;
+    return _1746;
+}
+
+float CalculateLineIntegral(FogLayer layer, float rayDirY, float rayOrigY)
+{
+    float exponent = max(-127.0, layer.fallOff * (rayOrigY - layer.offset));
+    float falloff = max(-127.0, layer.fallOff * rayDirY);
+    float lineIntegral = (1.0 - exp2(-falloff)) / falloff;
+    float lineIntegralTaylor = 0.693147182464599609375 - (0.2402265071868896484375 * falloff);
+    return (layer.density * exp2(-exponent)) * ((abs(falloff) > 0.004999999888241291046142578125) ? lineIntegral : lineIntegralTaylor);
+}
+
+void InplaceFogBlock(uint flags, vec3 worldPos, vec3 camWorldPos, vec4 inCol, out vec3 outCol)
+{
+    outCol = inCol.xyz;
+    if ((flags & 1u) == 1u)
+    {
+        vec3 cameraToPointVector = worldPos - camWorldPos;
+        float cameraToPointY = cameraToPointVector.y;
+        float cameraY = camWorldPos.y;
+        float cameraToPointLengthSqr = dot(cameraToPointVector, cameraToPointVector);
+        float cameraToPointLengthInv = inversesqrt(cameraToPointLengthSqr);
+        float worldDistanceToCamera = cameraToPointLengthSqr * cameraToPointLengthInv;
+        float minDistance = _s0_b5.uFogData.baseFactors.x;
+        if (minDistance > 0.0)
+        {
+            float minIntersectionT = minDistance * cameraToPointLengthInv;
+            float cameraToMinIntersectionY = minIntersectionT * cameraToPointY;
+            cameraToPointY -= cameraToMinIntersectionY;
+            cameraY += cameraToMinIntersectionY;
+            worldDistanceToCamera = (1.0 - minIntersectionT) * worldDistanceToCamera;
+        }
+        FogLayer L1 = FogLayer(_s0_b5.uFogData.firstLayer.x, _s0_b5.uFogData.firstLayer.y, _s0_b5.uFogData.firstLayer.z);
+        FogLayer param = L1;
+        float param_1 = cameraToPointY;
+        float param_2 = cameraY;
+        float layer1Integral = CalculateLineIntegral(param, param_1, param_2);
+        FogLayer L2 = FogLayer(_s0_b5.uFogData.secondLayer.x, _s0_b5.uFogData.secondLayer.y, _s0_b5.uFogData.secondLayer.z);
+        FogLayer param_3 = L2;
+        float param_4 = cameraToPointY;
+        float param_5 = cameraY;
+        float layer2Integral = CalculateLineIntegral(param_3, param_4, param_5);
+        float exponentialHeightLineIntegral = (layer1Integral + layer2Integral) * worldDistanceToCamera;
+        float maxOpacity = _s0_b5.uFogData.baseFactors.z;
+        float expFogFactor = min(1.0 - clamp(exp2(-exponentialHeightLineIntegral), 0.0, 1.0), maxOpacity);
+        float cutOffDistance = _s0_b5.uFogData.baseFactors.y;
+        if ((cutOffDistance > 0.0) && (worldDistanceToCamera > cutOffDistance))
+        {
+            expFogFactor = 0.0;
+        }
+        vec4 inscatteringColor = _s0_b5.uFogData.inscatteringColor;
+        vec4 envMapColor = _s0_b5.uFogData.envMapFactor;
+        vec3 fogColor = (inscatteringColor.xyz * inscatteringColor.w) + (envMapColor.xyz * envMapColor.w);
+        vec3 baseColor = inCol.xyz;
+        outCol = mix(baseColor, fogColor, vec3(expFogFactor));
+    }
+}
+
+vec4 UnlitShadowAlpha(float depthBufferSample, inout FullGBufferData fd)
+{
+    FullGBufferData param = fd;
+    GetSimpleSampledGBuffer(inUv, param);
+    fd = param;
+    DefaultMaterialGeneralDataStruct arg;
+    arg.indices = _s0_b3.uGeneralData.indices;
+    arg.viewportSizeInvViewportSize = _s0_b3.uGeneralData.viewportSizeInvViewportSize;
+    arg.sceneTimingData = _s0_b3.uGeneralData.sceneTimingData;
+    uint cameraIdx = GetUnpackCameraIndex(arg);
+    vec3 worldPos = GetWorldPos(cameraIdx, depthBufferSample, inUv);
+    vec3 camWorldPos = _s0_b2.uCameras[cameraIdx].viewInv[3].xyz;
+    uint directionalLightCount = _s0_b6.uLightData.directionalLightCount;
+    uint directionalLightBeginIndex = _s0_b6.uLightData.directionalLightBeginIndex;
+    vec4 atlasSizeInvSize = _s0_b6.uLightData.atlasSizeInvSize;
+    mediump float fullShadowCoeff = 1.0;
+    for (uint lightIdx = 0u; lightIdx < directionalLightCount; lightIdx++)
+    {
+        uint currLightIdx = directionalLightBeginIndex + lightIdx;
+        vec3 L = -_s0_b6.uLightData.lights[currLightIdx].dir.xyz;
+        float NoL = clamp(dot(fd.normal, L), 0.0, 1.0);
+        mediump float shadowCoeff = 1.0;
+        if (true)
+        {
+            uvec4 lightFlags = _s0_b6.uLightData.lights[currLightIdx].flags;
+            if ((lightFlags.x & 8u) == 8u)
+            {
+                vec4 shadowCoord = GetShadowMatrix(lightFlags.y) * vec4(worldPos, 1.0);
+                vec4 shadowFactors = _s0_b6.uLightData.lights[currLightIdx].shadowFactors;
+                if (_3000)
+                {
+                    vec4 param_1 = shadowCoord;
+                    float param_2 = NoL;
+                    vec4 param_3 = shadowFactors;
+                    vec4 param_4 = atlasSizeInvSize;
+                    uvec2 param_5 = lightFlags.zw;
+                    shadowCoeff = CalcVsmShadow(s0_b10, param_1, param_2, param_3, param_4, param_5);
+                }
+                else
+                {
+                    vec4 param_6 = shadowCoord;
+                    float param_7 = NoL;
+                    vec4 param_8 = shadowFactors;
+                    vec4 param_9 = atlasSizeInvSize;
+                    uvec2 param_10 = lightFlags.zw;
+                    shadowCoeff = CalcPcfShadow(s0_b11, param_6, param_7, param_8, param_9, param_10);
+                }
+            }
+        }
+        fullShadowCoeff *= shadowCoeff;
+    }
+    if (_3034)
+    {
+        DefaultMaterialGeneralDataStruct arg_1;
+        arg_1.indices = _s0_b3.uGeneralData.indices;
+        arg_1.viewportSizeInvViewportSize = _s0_b3.uGeneralData.viewportSizeInvViewportSize;
+        arg_1.sceneTimingData = _s0_b3.uGeneralData.sceneTimingData;
+        uint cameraIdx_1 = GetUnpackCameraIndex(arg_1);
+        uint spotLightCount = _s0_b6.uLightData.spotLightCount;
+        uint spotLightLightBeginIndex = _s0_b6.uLightData.spotLightBeginIndex;
+        for (uint spotIdx = 0u; spotIdx < spotLightCount; spotIdx++)
+        {
+            uint currLightIdx_1 = spotLightLightBeginIndex + spotIdx;
+            vec3 pointToLight = _s0_b6.uLightData.lights[currLightIdx_1].pos.xyz - worldPos;
+            float dist = length(pointToLight);
+            vec3 L_1 = pointToLight / vec3(dist);
+            float NoL_1 = clamp(dot(fd.normal, L_1), 0.0, 1.0);
+            mediump float shadowCoeff_1 = 1.0;
+            if (true)
+            {
+                uvec4 lightFlags_1 = _s0_b6.uLightData.lights[currLightIdx_1].flags;
+                if ((lightFlags_1.x & 8u) == 8u)
+                {
+                    vec4 shadowCoord_1 = GetShadowMatrix(lightFlags_1.y) * vec4(worldPos, 1.0);
+                    vec4 shadowFactors_1 = _s0_b6.uLightData.lights[currLightIdx_1].shadowFactors;
+                    if (_3117)
+                    {
+                        vec4 param_11 = shadowCoord_1;
+                        float param_12 = NoL_1;
+                        vec4 param_13 = shadowFactors_1;
+                        vec4 param_14 = atlasSizeInvSize;
+                        uvec2 param_15 = lightFlags_1.zw;
+                        shadowCoeff_1 = CalcVsmShadow(s0_b10, param_11, param_12, param_13, param_14, param_15);
+                    }
+                    else
+                    {
+                        vec4 param_16 = shadowCoord_1;
+                        float param_17 = NoL_1;
+                        vec4 param_18 = shadowFactors_1;
+                        vec4 param_19 = atlasSizeInvSize;
+                        uvec2 param_20 = lightFlags_1.zw;
+                        shadowCoeff_1 = CalcPcfShadow(s0_b11, param_16, param_17, param_18, param_19, param_20);
+                    }
+                }
+            }
+            float lightAngleScale = _s0_b6.uLightData.lights[currLightIdx_1].spotLightParams.x;
+            float lightAngleOffset = _s0_b6.uLightData.lights[currLightIdx_1].spotLightParams.y;
+            float cd = dot(_s0_b6.uLightData.lights[currLightIdx_1].dir.xyz, -L_1);
+            float angularAttenuation = clamp((cd * lightAngleScale) + lightAngleOffset, 0.0, 1.0);
+            float range = _s0_b6.uLightData.lights[currLightIdx_1].dir.w;
+            float attenuation = max(min(1.0 - pow(dist / range, 4.0), 1.0), 0.0) / (dist * dist);
+            float intensity = _s0_b6.uLightData.lights[currLightIdx_1].color.w;
+            float fullAttenuation = min(1.0, ((angularAttenuation * angularAttenuation) * attenuation) * intensity);
+            fullShadowCoeff *= (1.0 - ((1.0 - shadowCoeff_1) * fullAttenuation));
+        }
+    }
+    mediump vec3 color = fd.baseColor.xyz * clamp(1.0 - fullShadowCoeff, 0.0, 1.0);
+    uint param_21 = CORE_CAMERA_FLAGS;
+    vec3 param_22 = worldPos;
+    vec3 param_23 = camWorldPos;
+    vec4 param_24 = vec4(color, 1.0);
+    vec3 param_25;
+    InplaceFogBlock(param_21, param_22, param_23, param_24, param_25);
+    color = param_25;
+    vec4 _3234 = vec4(color, 1.0);
+    return _3234;
+}
+
+void GetSampledGBuffer(vec2 uv, inout FullGBufferData fd)
+{
+    vec4 param = texelFetch(s1_b2, ivec2(gl_FragCoord.xy), 0);
+    vec3 param_1;
+    float param_2;
+    GetUnpackBaseColorWithAo(param, param_1, param_2);
+    fd.baseColor.x = param_1.x;
+    fd.baseColor.y = param_1.y;
+    fd.baseColor.z = param_1.z;
+    fd.ao = param_2;
+    vec4 param_3 = texelFetch(s1_b1, ivec2(gl_FragCoord.xy), 0);
+    vec2 param_4;
+    vec3 param_5;
+    GetUnpackVelocityAndNormal(param_3, param_4, param_5);
+    vec2 vel = param_4;
+    fd.normal = param_5;
+    fd.normal = normalize(fd.normal);
+}
+
+void GetFinalSampledBrdfGeometricCorrection(inout InputBrdfData ibd)
+{
+    mediump float roughness = ibd.roughness;
+    mediump float alpha = roughness * roughness;
+    ibd.alpha2 = alpha * alpha;
+}
+
+InputBrdfData CalcBRDFMetallicRoughness(mediump vec4 baseColor, mediump vec4 material)
+{
+    mediump float metallic = clamp(material.z, 0.0, 1.0);
+    mediump vec3 _1863 = mix(vec3(material.w), baseColor.xyz, vec3(metallic));
+    InputBrdfData bd;
+    bd.f0.x = _1863.x;
+    bd.f0.y = _1863.y;
+    bd.f0.z = _1863.z;
+    bd.f0.w = 1.0;
+    bd.diffuseColor = mix(baseColor.xyz * (vec3(1.0) - bd.f0.xyz), vec3(0.0), vec3(metallic));
+    bd.roughness = material.y;
+    InputBrdfData param = bd;
+    GetFinalSampledBrdfGeometricCorrection(param);
+    bd = param;
+    return bd;
+}
+
+float dLambert()
+{
+    return 0.3183098733425140380859375;
+}
+
+float diffuseCoeff()
+{
+    return dLambert();
+}
+
+float Hash12(vec2 p)
+{
+    vec3 p3 = fract(p.xyx * 0.103100001811981201171875);
+    p3 += vec3(dot(p3, p3.yzx + vec3(33.3300018310546875)));
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+void InitPoissonDiskSamples(vec2 randomSeed, inout vec2 disk[16], float radius, uint numSamples)
+{
+    vec2 param = randomSeed;
+    float startAngle = Hash12(param) * 9.8696002960205078125;
+    vec2 rotator = vec2(cos(startAngle), sin(startAngle));
+    float invNumSamples = 1.0 / float(numSamples);
+    vec2 nextRot;
+    for (int i = 0; i < 16; i++)
+    {
+        float fI = float(i);
+        float active_ = step(fI, float(numSamples - 1u));
+        float normTemp = fI * invNumSamples;
+        float factor = sqrt(normTemp * sqrt(normTemp)) * radius;
+        disk[i] = rotator * (factor * active_);
+        nextRot.x = (rotator.x * (-0.737368881702423095703125)) - (rotator.y * (-0.675490319728851318359375));
+        nextRot.y = (rotator.x * (-0.675490319728851318359375)) + (rotator.y * (-0.737368881702423095703125));
+        rotator = nextRot;
+    }
+}
+
+float GetPcfSampleCmp(highp sampler2D shadow, vec2 baseUv, vec2 offset, float compareDepth, vec2 texelSize, vec2 receiverPlaneDepthBias, float bias, float dDepth_dx, float dDepth_dy, vec2 uvGradient_x, vec2 uvGradient_y)
+{
+    vec2 uvOffset = offset * texelSize;
+    float det = (uvGradient_x.x * uvGradient_y.y) - (uvGradient_x.y * uvGradient_y.x);
+    float signDet = sign(det) + step(abs(det), 9.999999717180685365747194737196e-10);
+    float safeDet = det + (signDet * 9.999999717180685365747194737196e-10);
+    float invDet = 1.0 / safeDet;
+    vec2 p;
+    p.x = ((uvGradient_y.y * uvOffset.x) - (uvGradient_y.x * uvOffset.y)) * invDet;
+    p.y = (((-uvGradient_x.y) * uvOffset.x) + (uvGradient_x.x * uvOffset.y)) * invDet;
+    float depthDelta = dot(vec2(dDepth_dx, dDepth_dy), p);
+    depthDelta *= step(9.9999999747524270787835121154785e-07, abs(det));
+    float newDepth = (compareDepth + depthDelta) - bias;
+    float shadowVal = texture(shadow, baseUv + uvOffset).x;
+    float result = step(shadowVal, newDepth);
+    return result * step(9.999999717180685365747194737196e-10, dot(offset, offset));
+}
+
+float CalcVariablePcfShadow(highp sampler2D shadow, vec4 inShadowCoord, float NoL, vec4 shadowFactor, vec4 atlasSizeInvSize, uvec2 shadowFlags, float sampleRadius, uint sampleCount)
+{
+    vec3 shadowCoord = inShadowCoord.xyz / vec3(inShadowCoord.w);
+    float light = 1.0;
+    float param = shadowFactor.w;
+    float param_1 = float(shadowFlags.x);
+    if (ValidShadowRange(shadowCoord, param, param_1, atlasSizeInvSize.z))
+    {
+        vec2 texelSize = atlasSizeInvSize.zw;
+        float normalBias = shadowFactor.z;
+        float depthBias = shadowFactor.y;
+        float bias = max(normalBias * (1.0 - NoL), depthBias);
+        vec2 _textureSize = atlasSizeInvSize.xy;
+        vec2 uv = (shadowCoord.xy * _textureSize) + vec2(0.5);
+        vec2 baseUv = (floor(uv) - vec2(0.5)) * texelSize;
+        vec3 shadowDdx = dFdx(shadowCoord);
+        vec3 shadowDdy = dFdy(shadowCoord);
+        vec2 receiverPlaneDepthBias = ComputeReceiverPlaneDepthBias(shadowDdx, shadowDdy);
+        float fSamplingError = 2.0 * dot(vec2(1.0) * texelSize, abs(receiverPlaneDepthBias));
+        float compareDepth = shadowCoord.z - min(fSamplingError, 0.00999999977648258209228515625);
+        uint clampedSampleCount = clamp(sampleCount, 0u, 64u);
+        vec2 seed = shadowCoord.xy * gl_FragCoord.xy;
+        vec2 param_2 = seed;
+        float param_4 = sampleRadius;
+        uint param_5 = clampedSampleCount;
+        vec2 param_3[16];
+        InitPoissonDiskSamples(param_2, param_3, param_4, param_5);
+        vec2 poissonDisk[16] = param_3;
+        float dDepth_dx = dFdx(compareDepth);
+        float dDepth_dy = dFdy(compareDepth);
+        vec2 uvGradient_x = dFdx(baseUv);
+        vec2 uvGradient_y = dFdy(baseUv);
+        float sum = 0.0;
+        for (int i = 0; i < 16; i++)
+        {
+            vec2 param_6 = poissonDisk[i];
+            float param_7 = dDepth_dx;
+            float param_8 = dDepth_dy;
+            vec2 param_9 = uvGradient_x;
+            vec2 param_10 = uvGradient_y;
+            sum += GetPcfSampleCmp(shadow, baseUv, param_6, compareDepth, texelSize, receiverPlaneDepthBias, bias, param_7, param_8, param_9, param_10);
+        }
+        float num = min(float(clampedSampleCount), 16.0);
+        float invNum = 1.0 / max(num, 9.9999997473787516355514526367188e-05);
+        float averageSum = sum * invNum;
+        float shadowResult = 1.0 - (averageSum * shadowFactor.x);
+        float hasSamples = step(9.9999997473787516355514526367188e-05, num);
+        light = mix(1.0, shadowResult, hasSamples);
+    }
+    return (light > 0.0) ? light : 0.0;
+}
+
+float dGGX(float alpha2, float NoH)
+{
+    float f = (((NoH * alpha2) - NoH) * NoH) + 1.0;
+    return alpha2 / (3.1415927410125732421875 * (f * f));
+}
+
+float vGGXWithCombinedDenominator(float alpha2, float NoV, float NoL)
+{
+    float gv = NoV + sqrt(((NoV - (NoV * alpha2)) * NoV) + alpha2);
+    float gl = NoL + sqrt(((NoL - (NoL * alpha2)) * NoL) + alpha2);
+    return min(1.0 / (gv * gl), 64512.0);
+}
+
+vec3 fSchlick(vec4 f0, float VoH)
+{
+    float p = pow(1.0 - VoH, 5.0);
+    return vec3(f0.w * p) + (f0.xyz * (1.0 - p));
+}
+
+vec3 CalculateLight(uint currLightIdx, vec3 materialDiffuseBRDF, vec3 L, float NoL, ShadingData sd, uint materialFlags)
+{
+    vec3 H = normalize(L + sd.V);
+    float VoH = clamp(dot(sd.V, H), 0.0, 1.0);
+    float NoH = clamp(dot(sd.N, H), 0.0, 1.0);
+    float extAttenuation = 1.0;
+    vec3 calculatedColor = vec3(0.0);
+    float param = sd.alpha2;
+    float param_1 = NoH;
+    float D = dGGX(param, param_1);
+    float param_2 = sd.alpha2;
+    float param_3 = sd.NoV;
+    float param_4 = NoL;
+    float G = vGGXWithCombinedDenominator(param_2, param_3, param_4);
+    vec4 param_5 = sd.f0;
+    float param_6 = VoH;
+    vec3 F = fSchlick(param_5, param_6);
+    vec3 specContrib = F * (D * G);
+    vec3 diffuseContrib = (vec3(1.0) - F) * materialDiffuseBRDF;
+    calculatedColor += (((diffuseContrib + (specContrib * extAttenuation)) * extAttenuation) * NoL);
+    calculatedColor *= _s0_b6.uLightData.lights[currLightIdx].color.xyz;
+    return calculatedColor;
+}
+
+float RectangleSolidAngle(vec3 p, vec3 v0, vec3 v1, vec3 v2, vec3 v3)
+{
+    vec3 n0 = normalize(cross(v0, v1));
+    vec3 n1 = normalize(cross(v1, v2));
+    vec3 n2 = normalize(cross(v2, v3));
+    vec3 n3 = normalize(cross(v3, v0));
+    float g0 = acos(dot(-n0, n1));
+    float g1 = acos(dot(-n1, n2));
+    float g2 = acos(dot(-n2, n3));
+    float g3 = acos(dot(-n3, n0));
+    return (((g0 + g1) + g2) + g3) - 6.283185482025146484375;
+}
+
+float Saturate(float x)
+{
+    return clamp(x, 0.0, 1.0);
+}
+
+float TracePlane(vec3 o, vec3 d, vec3 planeOrigin, vec3 planeNormal)
+{
+    return dot(planeNormal, (planeOrigin - o) / vec3(dot(planeNormal, d)));
+}
+
+float Sqr(float x)
+{
+    return x * x;
+}
+
+vec3 CalculateRectAreaLight(uint lightIdx, vec3 diff, vec3 spec, vec3 N, vec3 V, vec3 P, float alpha2)
+{
+    vec3 xDirHalf = _s0_b6.uLightData.lights[lightIdx].dir.xyz * 0.5;
+    vec3 yDirHalf = _s0_b6.uLightData.lights[lightIdx].spotLightParams.xyz * 0.5;
+    vec3 lPos = _s0_b6.uLightData.lights[lightIdx].pos.xyz;
+    vec3 lDir = cross(xDirHalf, yDirHalf);
+    vec3 rDir = mix(N, reflect(-V, N), vec3(1.0 - alpha2));
+    float faceCheck = dot(lPos - P, -lDir);
+    if (faceCheck > 0.0)
+    {
+        return vec3(0.0);
+    }
+    vec3 v0 = ((lPos - xDirHalf) + yDirHalf) - P;
+    vec3 v1 = ((lPos - xDirHalf) - yDirHalf) - P;
+    vec3 v2 = ((lPos + xDirHalf) - yDirHalf) - P;
+    vec3 v3 = ((lPos + xDirHalf) + yDirHalf) - P;
+    float xLen = length(xDirHalf);
+    float yLen = length(yDirHalf);
+    vec3 param = P;
+    vec3 param_1 = v0;
+    vec3 param_2 = v1;
+    vec3 param_3 = v2;
+    vec3 param_4 = v3;
+    float sAngle = RectangleSolidAngle(param, param_1, param_2, param_3, param_4);
+    float param_5 = dot(normalize(v0 - P), N);
+    float param_6 = dot(normalize(v1 - P), N);
+    float param_7 = dot(normalize(v2 - P), N);
+    float param_8 = dot(normalize(v3 - P), N);
+    float param_9 = dot(normalize(lPos - P), N);
+    float noL = (sAngle * 0.20000000298023223876953125) * ((((Saturate(param_5) + Saturate(param_6)) + Saturate(param_7)) + Saturate(param_8)) + Saturate(param_9));
+    vec3 param_10 = P;
+    vec3 param_11 = rDir;
+    vec3 param_12 = lPos;
+    vec3 param_13 = lDir;
+    vec3 intPos = P + (rDir * TracePlane(param_10, param_11, param_12, param_13));
+    vec3 intVec = intPos - lPos;
+    vec2 intDist = vec2(dot(intVec, xDirHalf) / xLen, dot(intVec, yDirHalf) / yLen);
+    vec2 nearRect = vec2(clamp(intDist.x, -xLen, xLen), clamp(intDist.y, -yLen, yLen));
+    vec3 specularFactor = vec3(0.0);
+    vec3 diffuseFactor = diff / vec3(3.1415927410125732421875);
+    float roL = dot(rDir, lDir);
+    if (roL > 0.0)
+    {
+        float param_14 = 1.0 - alpha2;
+        float specFactor = 1.0 - clamp((length(nearRect - intDist) * Sqr(param_14)) * 32.0, 0.0, 1.0);
+        specularFactor += (((spec * specFactor) * roL) * noL);
+    }
+    float range = _s0_b6.uLightData.lights[lightIdx].dir.w;
+    vec3 result = _s0_b6.uLightData.lights[lightIdx].color.xyz * (specularFactor + diffuseFactor);
+    return result;
+}
+
+vec3 CalculateLighting(ShadingData sd, uint materialFlags)
+{
+    vec3 materialDiffuseBRDF = sd.diffuseColor * diffuseCoeff();
+    vec3 color = vec3(0.0);
+    uint directionalLightCount = _s0_b6.uLightData.directionalLightCount;
+    uint directionalLightBeginIndex = _s0_b6.uLightData.directionalLightBeginIndex;
+    vec4 atlasSizeInvSize = _s0_b6.uLightData.atlasSizeInvSize;
+    float vpcfRadius = _s0_b6.uLightData.vpcfRadius;
+    uint vpcfSampleCount = _s0_b6.uLightData.vpcfSampleCount;
+    for (uint lightIdx = 0u; lightIdx < directionalLightCount; lightIdx++)
+    {
+        uint currLightIdx = directionalLightBeginIndex + lightIdx;
+        vec3 L = -_s0_b6.uLightData.lights[currLightIdx].dir.xyz;
+        float NoL = clamp(dot(sd.N, L), 0.0, 1.0);
+        mediump float shadowCoeff = 1.0;
+        if ((materialFlags & 1u) == 1u)
+        {
+            uvec4 lightFlags = _s0_b6.uLightData.lights[currLightIdx].flags;
+            if ((lightFlags.x & 8u) == 8u)
+            {
+                vec4 shadowCoord = GetShadowMatrix(lightFlags.y) * vec4(sd.pos, 1.0);
+                vec4 shadowFactors = _s0_b6.uLightData.lights[currLightIdx].shadowFactors;
+                if (_2067)
+                {
+                    vec4 param = shadowCoord;
+                    float param_1 = NoL;
+                    vec4 param_2 = shadowFactors;
+                    vec4 param_3 = atlasSizeInvSize;
+                    uvec2 param_4 = lightFlags.zw;
+                    shadowCoeff = CalcVsmShadow(s0_b10, param, param_1, param_2, param_3, param_4);
+                }
+                else
+                {
+                    if (_2085)
+                    {
+                        vec4 param_5 = shadowCoord;
+                        float param_6 = NoL;
+                        vec4 param_7 = shadowFactors;
+                        vec4 param_8 = atlasSizeInvSize;
+                        uvec2 param_9 = lightFlags.zw;
+                        float param_10 = vpcfRadius;
+                        uint param_11 = vpcfSampleCount;
+                        shadowCoeff = CalcVariablePcfShadow(s0_b10, param_5, param_6, param_7, param_8, param_9, param_10, param_11);
+                    }
+                    else
+                    {
+                        vec4 param_12 = shadowCoord;
+                        float param_13 = NoL;
+                        vec4 param_14 = shadowFactors;
+                        vec4 param_15 = atlasSizeInvSize;
+                        uvec2 param_16 = lightFlags.zw;
+                        shadowCoeff = CalcPcfShadow(s0_b11, param_12, param_13, param_14, param_15, param_16);
+                    }
+                }
+            }
+        }
+        uint param_17 = currLightIdx;
+        vec3 param_18 = materialDiffuseBRDF;
+        vec3 param_19 = L;
+        float param_20 = NoL;
+        ShadingData param_21 = sd;
+        color += (CalculateLight(param_17, param_18, param_19, param_20, param_21, materialFlags) * shadowCoeff);
+    }
+    if (_2136)
+    {
+        uint spotLightCount = _s0_b6.uLightData.spotLightCount;
+        uint spotLightLightBeginIndex = _s0_b6.uLightData.spotLightBeginIndex;
+        for (uint spotIdx = 0u; spotIdx < spotLightCount; spotIdx++)
+        {
+            uint currLightIdx_1 = spotLightLightBeginIndex + spotIdx;
+            vec3 pointToLight = _s0_b6.uLightData.lights[currLightIdx_1].pos.xyz - sd.pos;
+            float dist = length(pointToLight);
+            vec3 L_1 = pointToLight / vec3(dist);
+            float NoL_1 = clamp(dot(sd.N, L_1), 0.0, 1.0);
+            mediump float shadowCoeff_1 = 1.0;
+            if ((materialFlags & 1u) == 1u)
+            {
+                uvec4 lightFlags_1 = _s0_b6.uLightData.lights[currLightIdx_1].flags;
+                if ((lightFlags_1.x & 8u) == 8u)
+                {
+                    vec4 shadowCoord_1 = GetShadowMatrix(lightFlags_1.y) * vec4(sd.pos, 1.0);
+                    vec4 shadowFactors_1 = _s0_b6.uLightData.lights[currLightIdx_1].shadowFactors;
+                    if (_2211)
+                    {
+                        vec4 param_22 = shadowCoord_1;
+                        float param_23 = NoL_1;
+                        vec4 param_24 = shadowFactors_1;
+                        vec4 param_25 = atlasSizeInvSize;
+                        uvec2 param_26 = lightFlags_1.zw;
+                        shadowCoeff_1 = CalcVsmShadow(s0_b10, param_22, param_23, param_24, param_25, param_26);
+                    }
+                    else
+                    {
+                        if (_2228)
+                        {
+                            vec4 param_27 = shadowCoord_1;
+                            float param_28 = NoL_1;
+                            vec4 param_29 = shadowFactors_1;
+                            vec4 param_30 = atlasSizeInvSize;
+                            uvec2 param_31 = lightFlags_1.zw;
+                            float param_32 = vpcfRadius;
+                            uint param_33 = vpcfSampleCount;
+                            shadowCoeff_1 = CalcVariablePcfShadow(s0_b10, param_27, param_28, param_29, param_30, param_31, param_32, param_33);
+                        }
+                        else
+                        {
+                            vec4 param_34 = shadowCoord_1;
+                            float param_35 = NoL_1;
+                            vec4 param_36 = shadowFactors_1;
+                            vec4 param_37 = atlasSizeInvSize;
+                            uvec2 param_38 = lightFlags_1.zw;
+                            shadowCoeff_1 = CalcPcfShadow(s0_b11, param_34, param_35, param_36, param_37, param_38);
+                        }
+                    }
+                }
+            }
+            float lightAngleScale = _s0_b6.uLightData.lights[currLightIdx_1].spotLightParams.x;
+            float lightAngleOffset = _s0_b6.uLightData.lights[currLightIdx_1].spotLightParams.y;
+            float cd = dot(_s0_b6.uLightData.lights[currLightIdx_1].dir.xyz, -L_1);
+            float angularAttenuation = clamp((cd * lightAngleScale) + lightAngleOffset, 0.0, 1.0);
+            float range = _s0_b6.uLightData.lights[currLightIdx_1].dir.w;
+            float attenuation = max(min(1.0 - pow(dist / range, 4.0), 1.0), 0.0) / (dist * dist);
+            uint param_39 = currLightIdx_1;
+            vec3 param_40 = materialDiffuseBRDF;
+            vec3 param_41 = L_1;
+            float param_42 = NoL_1;
+            ShadingData param_43 = sd;
+            color += ((CalculateLight(param_39, param_40, param_41, param_42, param_43, materialFlags) * ((angularAttenuation * angularAttenuation) * attenuation)) * shadowCoeff_1);
+        }
+    }
+    if (_2323)
+    {
+        uint pointLightCount = _s0_b6.uLightData.pointLightCount;
+        uint pointLightBeginIndex = _s0_b6.uLightData.pointLightBeginIndex;
+        for (uint pointIdx = 0u; pointIdx < pointLightCount; pointIdx++)
+        {
+            uint currLightIdx_2 = pointLightBeginIndex + pointIdx;
+            vec3 pointToLight_1 = _s0_b6.uLightData.lights[currLightIdx_2].pos.xyz - sd.pos;
+            float dist_1 = length(pointToLight_1);
+            vec3 L_2 = pointToLight_1 / vec3(dist_1);
+            float NoL_2 = clamp(dot(sd.N, L_2), 0.0, 1.0);
+            float range_1 = _s0_b6.uLightData.lights[currLightIdx_2].dir.w;
+            float attenuation_1 = max(min(1.0 - pow(dist_1 / range_1, 4.0), 1.0), 0.0) / (dist_1 * dist_1);
+            uint param_44 = currLightIdx_2;
+            vec3 param_45 = materialDiffuseBRDF;
+            vec3 param_46 = L_2;
+            float param_47 = NoL_2;
+            ShadingData param_48 = sd;
+            color += (CalculateLight(param_44, param_45, param_46, param_47, param_48, materialFlags) * attenuation_1);
+        }
+    }
+    if (_2401)
+    {
+        uint rectLightCount = _s0_b6.uLightData.rectLightCount;
+        uint rectLightBeginIndex = _s0_b6.uLightData.rectLightBeginIndex;
+        for (uint rectIdx = 0u; rectIdx < rectLightCount; rectIdx++)
+        {
+            uint currLightIdx_3 = rectLightBeginIndex + rectIdx;
+            vec3 pointToLight_2 = _s0_b6.uLightData.lights[currLightIdx_3].pos.xyz - sd.pos;
+            float dist_2 = length(pointToLight_2);
+            vec3 L_3 = pointToLight_2 / vec3(dist_2);
+            float NoL_3 = clamp(dot(sd.N, L_3), 0.0, 1.0);
+            float range_2 = _s0_b6.uLightData.lights[currLightIdx_3].dir.w;
+            float attenuation_2 = max(min(1.0 - pow(dist_2 / range_2, 4.0), 1.0), 0.0) / (dist_2 * dist_2);
+            uint param_49 = currLightIdx_3;
+            vec3 param_50 = materialDiffuseBRDF;
+            vec3 param_51 = vec3(0.0500000007450580596923828125);
+            vec3 param_52 = sd.N;
+            vec3 param_53 = sd.V;
+            vec3 param_54 = sd.pos;
+            float param_55 = sd.alpha2;
+            color += (CalculateRectAreaLight(param_49, param_50, param_51, param_52, param_53, param_54, param_55) * attenuation_2);
+        }
+    }
+    return color;
+}
+
+vec3 unpackIblIrradianceSH(vec3 n, vec4 sh[9])
+{
+    vec3 _436 = (((((((sh[0].xyz + (sh[1].xyz * n.y)) + (sh[2].xyz * n.z)) + (sh[3].xyz * n.x)) + (sh[4].xyz * (n.x * n.y))) + (sh[5].xyz * (n.z * n.y))) + (sh[6].xyz * (((3.0 * n.z) * n.z) - 1.0))) + (sh[7].xyz * (n.x * n.z))) + (sh[8].xyz * ((n.x * n.x) - (n.y * n.y)));
+    return max(vec3(0.0), _436);
+}
+
+vec3 CoreGetIrradianceSample(vec3 worldNormal)
+{
+    vec3 worldNormalEnv = mat3(_s0_b4.uEnvironmentData.envRotation[0].xyz, _s0_b4.uEnvironmentData.envRotation[1].xyz, _s0_b4.uEnvironmentData.envRotation[2].xyz) * worldNormal;
+    vec3 param = worldNormalEnv;
+    vec4 param_1[9];
+    param_1[0] = _s0_b4.uEnvironmentData.shIndirectCoefficients[0];
+    param_1[1] = _s0_b4.uEnvironmentData.shIndirectCoefficients[1];
+    param_1[2] = _s0_b4.uEnvironmentData.shIndirectCoefficients[2];
+    param_1[3] = _s0_b4.uEnvironmentData.shIndirectCoefficients[3];
+    param_1[4] = _s0_b4.uEnvironmentData.shIndirectCoefficients[4];
+    param_1[5] = _s0_b4.uEnvironmentData.shIndirectCoefficients[5];
+    param_1[6] = _s0_b4.uEnvironmentData.shIndirectCoefficients[6];
+    param_1[7] = _s0_b4.uEnvironmentData.shIndirectCoefficients[7];
+    param_1[8] = _s0_b4.uEnvironmentData.shIndirectCoefficients[8];
+    return unpackIblIrradianceSH(param, param_1) * _s0_b4.uEnvironmentData.indirectDiffuseColorFactor.xyz;
+}
+
+vec3 EnvBRDFApprox(vec3 f0, float roughness, float NoV)
+{
+    vec4 r = (vec4(-1.0, -0.0274999998509883880615234375, -0.572000026702880859375, 0.02199999988079071044921875) * roughness) + vec4(1.0, 0.0425000004470348358154296875, 1.03999996185302734375, -0.039999999105930328369140625);
+    float a004 = (min(r.x * r.x, exp2((-9.27999973297119140625) * NoV)) * r.x) + r.y;
+    vec2 ab = (vec2(-1.03999996185302734375, 1.03999996185302734375) * a004) + r.zw;
+    float f90 = clamp(50.0 * max(f0.x, max(f0.y, f0.z)), 0.0, 1.0);
+    return (f0 * ab.x) + vec3(ab.y * f90);
+}
+
+float CoreGetLodForRadianceSample(float roughness)
+{
+    return _s0_b4.uEnvironmentData.values.x * roughness;
+}
+
+vec3 unpackIblRadiance(vec4 envColorRgbd)
+{
+    return envColorRgbd.xyz * (1.0 / envColorRgbd.w);
+}
+
+vec3 CoreGetRadianceSample(vec3 worldReflect, float roughness)
+{
+    mediump float cubeLod = CoreGetLodForRadianceSample(roughness);
+    vec3 worldReflectEnv = mat3(_s0_b4.uEnvironmentData.envRotation[0].xyz, _s0_b4.uEnvironmentData.envRotation[1].xyz, _s0_b4.uEnvironmentData.envRotation[2].xyz) * worldReflect;
+    vec4 param = textureLod(s0_b12, worldReflectEnv, cubeLod);
+    return unpackIblRadiance(param) * _s0_b4.uEnvironmentData.indirectSpecularColorFactor.xyz;
+}
+
+float SpecularHorizonOcclusion(vec3 R, vec3 N)
+{
+    float horizon = min(1.0 + dot(R, N), 1.0);
+    return horizon * horizon;
+}
+
+vec4 PbrBasic(float depthBufferSample, inout FullGBufferData fd)
+{
+    FullGBufferData param = fd;
+    GetSampledGBuffer(inUv, param);
+    fd = param;
+    mediump vec4 param_1 = fd.baseColor;
+    mediump vec4 param_2 = fd.material;
+    InputBrdfData brdfData = CalcBRDFMetallicRoughness(param_1, param_2);
+    DefaultMaterialGeneralDataStruct arg;
+    arg.indices = _s0_b3.uGeneralData.indices;
+    arg.viewportSizeInvViewportSize = _s0_b3.uGeneralData.viewportSizeInvViewportSize;
+    arg.sceneTimingData = _s0_b3.uGeneralData.sceneTimingData;
+    uint cameraIdx = GetUnpackCameraIndex(arg);
+    vec3 worldPos = GetWorldPos(cameraIdx, depthBufferSample, inUv);
+    vec3 camWorldPos = _s0_b2.uCameras[cameraIdx].viewInv[3].xyz;
+    vec3 V = normalize(camWorldPos - worldPos);
+    float NoV = clamp(dot(fd.normal, V), 9.9999997473787516355514526367188e-05, 1.0);
+    ShadingData shadingData;
+    shadingData.pos = worldPos;
+    shadingData.N = fd.normal;
+    shadingData.NoV = NoV;
+    shadingData.V = V;
+    shadingData.f0 = brdfData.f0;
+    shadingData.alpha2 = brdfData.alpha2;
+    shadingData.diffuseColor = brdfData.diffuseColor;
+    mediump float roughness = brdfData.roughness;
+    vec3 color = vec3(0.0);
+    if ((fd.materialFlags & 1024u) == 1024u)
+    {
+        ShadingData param_3 = shadingData;
+        color = CalculateLighting(param_3, fd.materialFlags);
+    }
+    if ((fd.materialFlags & 2048u) == 2048u)
+    {
+        mediump vec3 irradiance = (CoreGetIrradianceSample(shadingData.N) * shadingData.diffuseColor) * fd.ao;
+        vec3 worldReflect = reflect(-shadingData.V, shadingData.N);
+        vec3 param_4 = shadingData.f0.xyz;
+        float param_5 = roughness;
+        float param_6 = NoV;
+        mediump vec3 fIndirect = EnvBRDFApprox(param_4, param_5, param_6);
+        float arg_1 = roughness;
+        mediump vec3 radianceSample = CoreGetRadianceSample(worldReflect, arg_1);
+        mediump vec3 radiance = radianceSample * fIndirect;
+        vec3 param_7 = worldReflect;
+        vec3 param_8 = fd.normal;
+        radiance *= (fd.ao * SpecularHorizonOcclusion(param_7, param_8));
+        color += (irradiance + radiance);
+    }
+    uint param_9 = CORE_CAMERA_FLAGS;
+    vec3 param_10 = worldPos;
+    vec3 param_11 = camWorldPos;
+    vec4 param_12 = vec4(color, 1.0);
+    vec3 param_13;
+    InplaceFogBlock(param_9, param_10, param_11, param_12, param_13);
+    color = param_13;
+    color = clamp(color, vec3(0.0), vec3(64512.0));
+    return vec4(color, 1.0);
+}
+
+void main()
+{
+    float depthBufferSample = GetSampledDepthBuffer(inUv);
+    if (depthBufferSample < 1.0)
+    {
+        FullGBufferData fd = GetUnpackMaterialValues(inUv);
+        if (fd.materialType == 2u)
+        {
+            outColor = UnlitBasic();
+        }
+        else
+        {
+            if (fd.materialType == 3u)
+            {
+                float param = depthBufferSample;
+                FullGBufferData param_1 = fd;
+                vec4 _3432 = UnlitShadowAlpha(param, param_1);
+                outColor = _3432;
+            }
+            else
+            {
+                float param_2 = depthBufferSample;
+                FullGBufferData param_3 = fd;
+                vec4 _3438 = PbrBasic(param_2, param_3);
+                outColor = _3438;
+            }
+        }
+    }
+    else
+    {
+        outColor = vec4(0.0);
+    }
+}
+

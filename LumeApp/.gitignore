@@ -1,0 +1,17 @@
+/node_modules
+/oh_modules
+/entry/build
+/entry/.cxx
+/entry/libs
+/entry/oh_modules
+/entry/node_modules
+/build
+/.hvigor
+/.idea
+/local.properties
+*.hap
+*.har
+*.glb
+*.ply
+*.splat
+*.sog

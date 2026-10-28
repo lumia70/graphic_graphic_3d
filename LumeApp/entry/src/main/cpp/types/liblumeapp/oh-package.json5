@@ -1,0 +1,6 @@
+{
+  "name": "liblumeapp",
+  "types": "./Index.d.ts",
+  "version": "",
+  "description": "Lume 3D engine app entry"
+}

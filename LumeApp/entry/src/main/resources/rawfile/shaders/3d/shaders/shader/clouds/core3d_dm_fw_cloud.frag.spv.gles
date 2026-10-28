@@ -1,0 +1,320 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct DefaultMaterialEnvironmentStruct
+{
+    vec4 indirectSpecularColorFactor;
+    vec4 indirectDiffuseColorFactor;
+    vec4 envMapColorFactor;
+    vec4 values;
+    vec4 blendFactor;
+    mat4 envRotation;
+    uvec4 indices;
+    vec4 shIndirectCoefficients[9];
+    uvec4 multiEnvIndices;
+    vec4 packedSun;
+    vec4 packedPhases;
+    vec4 groundColor;
+    vec4 aerialPerspectiveParams;
+    vec4 skySunParams;
+    vec4 skySunColor;
+    vec4 skyMoonNightParams;
+    vec4 skyMoonColor;
+    vec4 padding[4];
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+struct DefaultMaterialFogStruct
+{
+    uvec4 indices;
+    vec4 firstLayer;
+    vec4 secondLayer;
+    vec4 baseFactors;
+    vec4 inscatteringColor;
+    vec4 envMapFactor;
+    vec4 additionalFactor;
+};
+
+struct DefaultMaterialSingleLightStruct
+{
+    vec4 pos;
+    vec4 dir;
+    vec4 color;
+    vec4 spotLightParams;
+    vec4 shadowFactors;
+    vec4 additionalFactor;
+    uvec4 flags;
+    uvec4 indices;
+};
+
+struct DefaultMaterialLightStruct
+{
+    uint directionalLightBeginIndex;
+    uint directionalLightCount;
+    uint pointLightBeginIndex;
+    uint pointLightCount;
+    uint spotLightBeginIndex;
+    uint spotLightCount;
+    uint rectLightBeginIndex;
+    uint rectLightCount;
+    uvec4 clusterSizes;
+    vec4 clusterFactors;
+    vec4 atlasSizeInvSize;
+    vec4 additionalFactors;
+    DefaultMaterialSingleLightStruct lights[64];
+    float vpcfRadius;
+    uint vpcfSampleCount;
+    uint paddings0;
+    uint paddings1;
+};
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct DefaultMaterialLightClusterData
+{
+    uint count;
+    uint lightIndices[15];
+};
+
+struct DefaultMaterialSingleMeshStruct
+{
+    mat4 world;
+    mat4 normalWorld;
+    mat4 prevWorld;
+    uvec4 indices;
+    uvec4 layers;
+    uvec4 customData[2];
+};
+
+struct DefaultMaterialMeshStruct
+{
+    DefaultMaterialSingleMeshStruct mesh[64];
+};
+
+struct DefaultMaterialSkinStruct
+{
+    mat4 jointMatrices[256];
+};
+
+struct DefaultMaterialSingleMaterialStruct
+{
+    vec4 factors[15];
+    uvec4 indices;
+};
+
+struct DefaultMaterialMaterialStruct
+{
+    DefaultMaterialSingleMaterialStruct material[64];
+};
+
+struct DefaultMaterialTransformSingleMaterialStruct
+{
+    uvec4 _packed[15];
+    uvec4 indices;
+};
+
+struct DefaultMaterialTransformMaterialStruct
+{
+    DefaultMaterialTransformSingleMaterialStruct material[64];
+};
+
+struct DefaultMaterialSingleUserMaterialStruct
+{
+    uvec4 userData[16];
+};
+
+struct DefaultMaterialUserMaterialStruct
+{
+    DefaultMaterialSingleUserMaterialStruct material[64];
+};
+
+struct DefaultSingleLightProbeStruct
+{
+    vec4 shCoefficientsData[9];
+    vec4 bentNormalAo;
+};
+
+struct DefaultLightProbeDataIndexStruct
+{
+    uint lightProbeDataIndex;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_MATERIAL_TYPE = SPIRV_CROSS_CONSTANT_ID_0;
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+#ifndef SPIRV_CROSS_CONSTANT_ID_2
+#define SPIRV_CROSS_CONSTANT_ID_2 0u
+#endif
+const uint CORE_LIGHTING_FLAGS = SPIRV_CROSS_CONSTANT_ID_2;
+#ifndef SPIRV_CROSS_CONSTANT_ID_3
+#define SPIRV_CROSS_CONSTANT_ID_3 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_3;
+#ifndef SPIRV_CROSS_CONSTANT_ID_4
+#define SPIRV_CROSS_CONSTANT_ID_4 0u
+#endif
+const uint CORE_CAMERA_FLAGS = SPIRV_CROSS_CONSTANT_ID_4;
+
+layout(std140) uniform s0_b2
+{
+    DefaultMaterialEnvironmentStruct uEnvironmentData;
+} _s0_b2;
+
+uniform mediump sampler2D s2_b1[10];
+
+layout(location = 0) in vec2 inUv;
+layout(location = 1) out vec4 outVelocityNormal;
+layout(location = 0) out vec4 outColor;
+
+ivec2 GetTextureSize(uint instanceIdx, uint matTexIdx, int lod)
+{
+    return textureSize(s2_b1[matTexIdx], lod);
+}
+
+vec4 GetTextureSample(vec2 uv, uint instanceIdx, uint matTexIdx)
+{
+    vec4 _149 = texture(s2_b1[matTexIdx], uv);
+    return _149;
+}
+
+vec4 GetTexelFetch(ivec2 uv, uint instanceIdx, uint matTexIdx)
+{
+    vec4 _158 = texelFetch(s2_b1[matTexIdx], uv, 0);
+    return _158;
+}
+
+vec2 OctWrap(vec2 v)
+{
+    return (vec2(1.0) - abs(v.yx)) * vec2((v.x >= 0.0) ? 1.0 : (-1.0), (v.y >= 0.0) ? 1.0 : (-1.0));
+}
+
+vec2 NormalOctEncode(vec3 normal)
+{
+    vec3 n = normal;
+    n /= vec3((abs(n.x) + abs(n.y)) + abs(n.z));
+    vec2 _92;
+    if (n.z >= 0.0)
+    {
+        _92 = n.xy;
+    }
+    else
+    {
+        vec2 param = n.xy;
+        _92 = OctWrap(param);
+    }
+    n.x = _92.x;
+    n.y = _92.y;
+    vec3 _107 = n;
+    vec2 _112 = (_107.xy * 0.5) + vec2(0.5);
+    n.x = _112.x;
+    n.y = _112.y;
+    return n.xy;
+}
+
+vec4 GetPackVelocityAndNormal(vec2 velocity, vec3 normal)
+{
+    vec3 param = normal;
+    return vec4(velocity, NormalOctEncode(param));
+}
+
+void CloudMain()
+{
+    uint frameIndex = floatBitsToUint(_s0_b2.uEnvironmentData.groundColor.w);
+    uint idx = 0u + frameIndex;
+    vec2 uvFull = (inUv * 0.5) + vec2(0.5);
+    vec2 lowResTexelSize = vec2(1.0) / vec2(GetTextureSize(0u, idx, 0));
+    ivec2 lowResTextureSize = GetTextureSize(0u, idx, 0);
+    vec2 uvLow = uvFull - (lowResTexelSize * 0.5);
+    vec2 lowUV_scaled = uvFull / lowResTexelSize;
+    ivec2 base = ivec2(floor(lowUV_scaled));
+    vec4 next = GetTextureSample(uvFull, 0u, idx);
+    uint depthTexIdx = 2u + frameIndex;
+    float centerDepth = GetTextureSample(uvFull, 0u, depthTexIdx).x;
+    vec4 totalColor = vec4(0.0);
+    float totalWeight = 0.0;
+    for (int j = -1; j <= 1; j++)
+    {
+        for (int i = -1; i <= 1; i++)
+        {
+            ivec2 neighborCoord = clamp(base + ivec2(i, j), ivec2(0), lowResTextureSize - ivec2(1));
+            vec4 neighborColor = GetTexelFetch(neighborCoord, 0u, idx);
+            float neighborDepth = GetTexelFetch(neighborCoord, 0u, depthTexIdx).x;
+            float depthDiff = neighborDepth - centerDepth;
+            float depthWeight = exp((-(depthDiff * depthDiff)) / 0.180000007152557373046875);
+            vec2 neighborUV = (vec2(neighborCoord) + vec2(0.5)) * lowResTexelSize;
+            vec2 uvDiff = (uvFull - neighborUV) / lowResTexelSize;
+            float distSq = dot(uvDiff, uvDiff);
+            float spatialWeight = exp((-distSq) / 5.780000209808349609375);
+            float colorDiff = length(neighborColor.xyz - next.xyz);
+            float colorWeight = exp((-(colorDiff * colorDiff)) / 8.0);
+            float finalWeight = (depthWeight * spatialWeight) * colorWeight;
+            totalColor += (neighborColor * finalWeight);
+            totalWeight += finalWeight;
+        }
+    }
+    vec2 param = vec2(0.0);
+    vec3 param_1 = vec3(0.0);
+    outVelocityNormal = GetPackVelocityAndNormal(param, param_1);
+    gl_FragDepth = 1.0;
+    if (totalWeight < 9.9999997473787516355514526367188e-05)
+    {
+        outColor = next;
+        return;
+    }
+    outColor = totalColor / vec4(totalWeight);
+}
+
+void main()
+{
+    CloudMain();
+}
+

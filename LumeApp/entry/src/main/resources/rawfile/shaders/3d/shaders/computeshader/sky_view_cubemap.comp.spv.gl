@@ -1,0 +1,226 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct PushConstantStruct
+{
+    vec4 sunDir;
+    vec4 cameraPosBrightness;
+    vec4 skySunParams;
+    vec4 skySunColor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPostProcessPushConstant
+{
+    PushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform sampler2D s0_b1;
+uniform sampler2D s0_b2;
+layout(binding = 11, r11f_g11f_b10f) uniform writeonly image2DArray s0_b0;
+
+vec3 GetCubemapDirection(vec2 uv, uint face)
+{
+    vec2 pos = (uv * 2.0) - vec2(1.0);
+    vec3 dir;
+    switch (face)
+    {
+        case 0u:
+        {
+            dir = vec3(1.0, -pos.y, -pos.x);
+            break;
+        }
+        case 1u:
+        {
+            dir = vec3(-1.0, -pos.y, pos.x);
+            break;
+        }
+        case 2u:
+        {
+            dir = vec3(pos.x, 1.0, pos.y);
+            break;
+        }
+        case 3u:
+        {
+            dir = vec3(pos.x, -1.0, -pos.y);
+            break;
+        }
+        case 4u:
+        {
+            dir = vec3(pos.x, -pos.y, 1.0);
+            break;
+        }
+        case 5u:
+        {
+            dir = vec3(-pos.x, -pos.y, -1.0);
+            break;
+        }
+    }
+    return normalize(dir);
+}
+
+float Safeacos(float x)
+{
+    return acos(clamp(x, -1.0, 1.0));
+}
+
+vec3 GetValFromSkyLUT(vec3 rayDir, vec3 sunDir, vec3 viewPos)
+{
+    float height = length(viewPos);
+    vec3 up = viewPos / vec3(height);
+    float horizonAngle = Safeacos(sqrt((height * height) - 40589640.0) / height);
+    float altitudeAngle = -(horizonAngle - acos(dot(rayDir, up)));
+    float azimuthAngle = 0.0;
+    if (abs(altitudeAngle) <= 1.570696353912353515625)
+    {
+        vec3 right = cross(sunDir, up);
+        vec3 forward = cross(up, right);
+        vec3 projectedDir = normalize(rayDir - (up * dot(rayDir, up)));
+        float sinTheta = dot(projectedDir, right);
+        float cosTheta = dot(projectedDir, forward);
+        azimuthAngle = atan(sinTheta, cosTheta);
+        if (azimuthAngle < 0.0)
+        {
+            azimuthAngle += 6.283185482025146484375;
+        }
+    }
+    float v = 0.5 + ((0.5 * sign(altitudeAngle)) * sqrt((abs(altitudeAngle) * 2.0) / 3.1415927410125732421875));
+    vec2 uv = vec2(azimuthAngle / 6.283185482025146484375, v);
+    return textureLod(s0_b1, uv, 0.0).xyz;
+}
+
+float GetSkySunAngularRadiusRadians()
+{
+    return 0.5 * radians(clamp(CORE_PC_0.uPc.skySunParams.x, 0.00999999977648258209228515625, 20.0));
+}
+
+vec3 SunWithBloom(vec3 rayDir, vec3 sunDir)
+{
+    float sunAngularRadius = GetSkySunAngularRadiusRadians();
+    float minSunCosTheta = cos(sunAngularRadius);
+    float cosTheta = dot(rayDir, sunDir);
+    if (cosTheta >= minSunCosTheta)
+    {
+        return vec3(1.0);
+    }
+    float offset = (minSunCosTheta - cosTheta) * (0.0046251225285232067108154296875 / max(sunAngularRadius, 9.9999999747524270787835121154785e-07));
+    float gaussianBloom = exp((-offset) * 50000.0) * 0.5;
+    float invBloom = (1.0 / (0.0199999995529651641845703125 + (offset * 300.0))) * 0.00999999977648258209228515625;
+    return vec3(gaussianBloom + invBloom);
+}
+
+vec3 GetSkySunTint()
+{
+    return max(CORE_PC_0.uPc.skySunColor.xyz, vec3(0.0));
+}
+
+float GetSkySunOpacity()
+{
+    return clamp(CORE_PC_0.uPc.skySunParams.y, 0.0, 1.0);
+}
+
+float RayIntersectSphere(vec3 ro, vec3 rd, float rad)
+{
+    float b = dot(ro, rd);
+    float c = dot(ro, ro) - (rad * rad);
+    if ((c > 0.0) && (b > 0.0))
+    {
+        return -1.0;
+    }
+    float discr = (b * b) - c;
+    if (discr < 0.0)
+    {
+        return -1.0;
+    }
+    if (discr > (b * b))
+    {
+        return (-b) + sqrt(discr);
+    }
+    return (-b) - sqrt(discr);
+}
+
+vec2 GetTransmittanceTextureUvFromRMu(float r, float mu)
+{
+    float h = 1133.2254638671875;
+    float rho = sqrt(max(0.0, (r * r) - 40589640.0));
+    float dMin = 6471.0 - r;
+    float dMax = rho + h;
+    float discriminant = ((r * r) * ((mu * mu) - 1.0)) + 41873840.0;
+    float d = max(0.0, ((-r) * mu) + sqrt(max(0.0, discriminant)));
+    float xMu = clamp((d - dMin) / (dMax - dMin), 0.0, 1.0);
+    float xR = clamp(rho / h, 0.0, 1.0);
+    return vec2(xMu, xR);
+}
+
+vec3 GetValFromTransmittanceLUT(vec3 viewPos, vec3 sunDir)
+{
+    float height = length(viewPos);
+    vec3 up = viewPos / vec3(height);
+    float sunCosZenithAngle = dot(sunDir, up);
+    float param = height;
+    float param_1 = sunCosZenithAngle;
+    vec2 uv = GetTransmittanceTextureUvFromRMu(param, param_1);
+    return textureLod(s0_b2, uv, 0.0).xyz;
+}
+
+void main()
+{
+    ivec3 globalID = ivec3(gl_GlobalInvocationID);
+    ivec3 cubemapSize = imageSize(s0_b0);
+    if (any(greaterThanEqual(globalID.xy, cubemapSize.xy)))
+    {
+        return;
+    }
+    uint face = uint(globalID.z);
+    if (face > 5u)
+    {
+        return;
+    }
+    vec2 uv = (vec2(globalID.xy) + vec2(0.5)) / vec2(cubemapSize.xy);
+    vec2 param = uv;
+    uint param_1 = face;
+    vec3 worldDir = GetCubemapDirection(param, param_1);
+    vec3 sunDir = normalize(CORE_PC_0.uPc.sunDir.xyz);
+    vec3 cameraPos = CORE_PC_0.uPc.cameraPosBrightness.xyz;
+    float actualHeight = length(cameraPos);
+    float scaledHeight = 6371.0 + (actualHeight * 0.001000000047497451305389404296875);
+    vec3 viewPos = vec3(0.0, scaledHeight, 0.0);
+    vec3 skyViewPos = vec3(0.0, -scaledHeight, 0.0);
+    vec3 param_2 = worldDir;
+    vec3 param_3 = sunDir;
+    vec3 param_4 = skyViewPos;
+    vec3 skyColor = GetValFromSkyLUT(param_2, param_3, param_4);
+    vec3 param_5 = worldDir;
+    vec3 param_6 = sunDir;
+    vec3 sunLum = SunWithBloom(param_5, param_6);
+    sunLum = smoothstep(vec3(0.00200000009499490261077880859375), vec3(1.0), sunLum);
+    sunLum *= (GetSkySunTint() * GetSkySunOpacity());
+    vec3 param_7 = viewPos;
+    vec3 param_8 = worldDir;
+    float param_9 = 6371.0;
+    float planetIntersect = RayIntersectSphere(param_7, param_8, param_9);
+    if (length(sunLum) > 0.0)
+    {
+        if (planetIntersect >= 0.0)
+        {
+            sunLum *= 0.0;
+        }
+        else
+        {
+            vec3 param_10 = viewPos;
+            vec3 param_11 = sunDir;
+            sunLum *= GetValFromTransmittanceLUT(param_10, param_11);
+        }
+    }
+    skyColor += sunLum;
+    imageStore(s0_b0, ivec3(globalID.xy, int(face)), vec4(skyColor, 1.0));
+}
+

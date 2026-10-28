@@ -1,0 +1,128 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct MorphObjectPushConstantStruct
+{
+    uint morphSet;
+    uint vertexCount;
+    uint morphTargetCount;
+    uint activeTargets;
+};
+
+struct MorphInputData
+{
+    vec4 pos;
+    uvec4 nortan;
+};
+
+struct MorphTargetInfoStruct
+{
+    uvec4 target;
+    vec4 weight;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(binding = 11, std430) restrict readonly buffer s1_b1
+{
+    MorphInputData data[];
+} _s1_b1;
+
+layout(binding = 11, std430) restrict readonly buffer s0_b0
+{
+    MorphTargetInfoStruct uObjects[];
+} _s0_b0;
+
+layout(binding = 11, std430) restrict readonly buffer s1_b0
+{
+    uint indexData[];
+} _s1_b0;
+
+layout(binding = 11, std430) restrict writeonly buffer s2_b0
+{
+    float posOut[];
+} _s2_b0;
+
+layout(binding = 11, std430) restrict writeonly buffer s2_b1
+{
+    uint norOut[];
+} _s2_b1;
+
+layout(binding = 11, std430) restrict writeonly buffer s2_b2
+{
+    uint tanOut[];
+} _s2_b2;
+
+struct uPushConstant
+{
+    MorphObjectPushConstantStruct uObjectPushConstant;
+};
+
+uniform uPushConstant CORE_PC_0;
+
+vec3 UnpackMorphNormal(uvec4 nt)
+{
+    vec2 _27 = unpackHalf2x16(nt.x);
+    vec4 normal;
+    normal.x = _27.x;
+    normal.y = _27.y;
+    vec2 _36 = unpackHalf2x16(nt.y);
+    normal.z = _36.x;
+    normal.w = _36.y;
+    return normal.xyz;
+}
+
+vec4 UnpackMorphTangent(uvec4 nt)
+{
+    vec2 _50 = unpackHalf2x16(nt.z);
+    vec4 tangent;
+    tangent.x = _50.x;
+    tangent.y = _50.y;
+    vec2 _57 = unpackHalf2x16(nt.w);
+    tangent.z = _57.x;
+    tangent.w = _57.y;
+    return tangent;
+}
+
+void main()
+{
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid < CORE_PC_0.uObjectPushConstant.vertexCount)
+    {
+        uint baseid = tid * 3u;
+        vec3 p = _s1_b1.data[tid].pos.xyz;
+        uvec4 param = _s1_b1.data[tid].nortan;
+        vec3 n = UnpackMorphNormal(param);
+        uvec4 param_1 = _s1_b1.data[tid].nortan;
+        vec4 fullTangent = UnpackMorphTangent(param_1);
+        float tangentW = fullTangent.w;
+        vec3 t = fullTangent.xyz;
+        for (int i = 0; uint(i) < CORE_PC_0.uObjectPushConstant.activeTargets; i++)
+        {
+            uint id = _s0_b0.uObjects[CORE_PC_0.uObjectPushConstant.morphSet + uint(i / 4)].target[i % 4];
+            uint index = _s1_b0.indexData[tid + (id * CORE_PC_0.uObjectPushConstant.vertexCount)];
+            if (index != 4294967295u)
+            {
+                float w = _s0_b0.uObjects[CORE_PC_0.uObjectPushConstant.morphSet + uint(i / 4)].weight[i % 4];
+                p += (_s1_b1.data[index].pos.xyz * w);
+                uvec4 param_2 = _s1_b1.data[index].nortan;
+                n += (UnpackMorphNormal(param_2) * w);
+                uvec4 param_3 = _s1_b1.data[index].nortan;
+                t += (UnpackMorphTangent(param_3).xyz * w);
+            }
+        }
+        _s2_b0.posOut[baseid + 0u] = p.x;
+        _s2_b0.posOut[baseid + 1u] = p.y;
+        _s2_b0.posOut[baseid + 2u] = p.z;
+        _s2_b1.norOut[tid * 2u] = packSnorm2x16(n.xy);
+        _s2_b1.norOut[(tid * 2u) + 1u] = packSnorm2x16(vec2(n.z, 0.0));
+        _s2_b2.tanOut[tid * 2u] = packSnorm2x16(t.xy);
+        _s2_b2.tanOut[(tid * 2u) + 1u] = packSnorm2x16(vec2(t.z, tangentW));
+    }
+}
+

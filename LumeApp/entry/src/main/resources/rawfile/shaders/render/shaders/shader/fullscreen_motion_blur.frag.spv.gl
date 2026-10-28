@@ -1,0 +1,145 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(std140) uniform s0_b4
+{
+    vec4 uMotionBlurFactorData;
+} _s0_b4;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform sampler2D s0_b2;
+uniform sampler2D s0_b3;
+uniform sampler2D s0_b0;
+uniform sampler2D s0_b1;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+vec4 GetFactor()
+{
+    return _s0_b4.uMotionBlurFactorData;
+}
+
+vec2 GetUnpackTileVelocity(vec2 uv, vec2 invSize)
+{
+    return textureLod(s0_b3, uv, 0.0).xy * invSize;
+}
+
+bool IsVelocityZero(vec2 velocity)
+{
+    bool _76 = abs(velocity.x) < 9.9999997473787516355514526367188e-05;
+    bool _84;
+    if (!_76)
+    {
+        _84 = abs(velocity.y) < 9.9999997473787516355514526367188e-05;
+    }
+    else
+    {
+        _84 = _76;
+    }
+    return _84;
+}
+
+vec2 GetUnpackVelocity(vec2 uv, vec2 invSize)
+{
+    return textureLod(s0_b2, uv, 0.0).xy * invSize;
+}
+
+float Rand(vec2 co)
+{
+    return fract(sin(dot(co, vec2(12.98980045318603515625, 78.233001708984375)) * 43758.546875));
+}
+
+float SoftDepthCompare(float za, float zb)
+{
+    return clamp(1.0 - ((za - zb) / max(min(za, zb), 9.9999997473787516355514526367188e-05)), 0.0, 1.0);
+}
+
+float CompareCone(float dist, float velocity)
+{
+    return clamp(1.0 - (dist / max(velocity, 9.9999997473787516355514526367188e-05)), 0.0, 1.0);
+}
+
+float CompareCylinder(float dist, float velocity)
+{
+    return 1.0 - smoothstep(0.949999988079071044921875 * velocity, 1.0499999523162841796875 * velocity, dist);
+}
+
+void main()
+{
+    vec4 factor = GetFactor();
+    uint sharpness = uint(factor.x + 0.5);
+    uint quality = uint(factor.y + 0.5);
+    float fSampleCount = 11.0;
+    if (quality == 2u)
+    {
+        fSampleCount = 15.0;
+    }
+    vec2 X = inUv;
+    float velocityCoefficient = factor.w;
+    vec2 maxNeighborVelocity = GetUnpackTileVelocity(X, CORE_PC_0.uPc.viewportSizeInvSize.zw) * velocityCoefficient;
+    vec3 baseColor = texture(s0_b0, X).xyz;
+    if (!IsVelocityZero(maxNeighborVelocity))
+    {
+        if (quality == 0u)
+        {
+            vec3 color = vec3(0.0);
+            vec2 baseVelocity = GetUnpackVelocity(X, CORE_PC_0.uPc.viewportSizeInvSize.zw) * velocityCoefficient;
+            for (uint ii = 0u; ii < uint(fSampleCount); ii++)
+            {
+                vec2 offset = baseVelocity * ((float(ii) / fSampleCount) - 0.5);
+                color += textureLod(s0_b0, X + offset, 0.0).xyz;
+            }
+            outColor = vec4(color / vec3(fSampleCount), 1.0);
+        }
+        else
+        {
+            float jitter = ((Rand(X) * 2.0) - 1.0) * 0.5;
+            vec2 xVelocity = GetUnpackVelocity(X, CORE_PC_0.uPc.viewportSizeInvSize.zw) * velocityCoefficient;
+            float xVelocityLen = length(xVelocity);
+            float xDepth = textureLod(s0_b1, X, 0.0).x;
+            float weight = 1.0 / max(xVelocityLen, 0.5);
+            vec3 color_1 = baseColor * weight;
+            for (int ii_1 = 0; ii_1 < int(fSampleCount); ii_1++)
+            {
+                float tt = mix(-1.0, 1.0, ((float(ii_1) + jitter) + 1.0) / (fSampleCount + 1.0));
+                vec2 offset_1 = maxNeighborVelocity * tt;
+                vec2 Y = X + offset_1;
+                vec2 yVelocity = GetUnpackVelocity(Y, CORE_PC_0.uPc.viewportSizeInvSize.zw) * velocityCoefficient;
+                float yVelocityLen = length(yVelocity);
+                float offsetLen = length(offset_1);
+                float yDepth = textureLod(s0_b1, Y, 0.0).x;
+                float ff = SoftDepthCompare(xDepth, yDepth);
+                float bb = SoftDepthCompare(yDepth, xDepth);
+                float yInFrontOfX = (yDepth > xDepth) ? 0.0 : 1.0;
+                float yWeight = (((yInFrontOfX * ff) * CompareCone(offsetLen, yVelocityLen)) + (bb * CompareCone(offsetLen, xVelocityLen))) + ((CompareCylinder(offsetLen, yVelocityLen) * CompareCylinder(offsetLen, xVelocityLen)) * 2.0);
+                weight += yWeight;
+                color_1 += (textureLod(s0_b0, Y, 0.0).xyz * yWeight);
+            }
+            outColor = vec4(color_1 / vec3(weight), 1.0);
+        }
+    }
+    else
+    {
+        outColor = vec4(baseColor, 1.0);
+    }
+}
+

@@ -1,0 +1,31 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(binding = 11, std430) readonly buffer s0_b0
+{
+    uvec4 inArgs;
+    ivec2 newRipplePositions[8];
+} _s0_b0;
+
+layout(binding = 11, rgba32f) uniform writeonly highp image2D s0_b2;
+layout(binding = 11, rgba32f) uniform writeonly highp image2D s0_b1;
+
+void main()
+{
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imageDim = ivec2(_s0_b0.inArgs.zw);
+    if (any(greaterThan(xy, (imageDim - ivec2(1)))))
+    {
+        return;
+    }
+    imageStore(s0_b2, xy, vec4(0.0));
+    imageStore(s0_b1, xy, vec4(0.0));
+}
+

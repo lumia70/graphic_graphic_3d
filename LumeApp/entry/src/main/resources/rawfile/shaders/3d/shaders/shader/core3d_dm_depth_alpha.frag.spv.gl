@@ -1,0 +1,238 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(depth_less) out float gl_FragDepth;
+
+struct DefaultMaterialUnpackedTexTransformStruct
+{
+    vec4 rotateScale;
+    vec2 translate;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+const uint _105 = (CORE_MATERIAL_FLAGS & 16384u);
+const bool _106 = (_105 == 16384u);
+const uint _110 = (CORE_MATERIAL_FLAGS & 32768u);
+const bool _111 = (_110 == 32768u);
+
+struct DefaultMaterialSingleMaterialStruct
+{
+    vec4 factors[15];
+    uvec4 indices;
+};
+
+struct DefaultMaterialMaterialStruct
+{
+    DefaultMaterialSingleMaterialStruct material[64];
+};
+
+const uint _168 = (CORE_MATERIAL_FLAGS & 8u);
+const bool _169 = (_168 == 8u);
+
+struct DefaultMaterialTransformSingleMaterialStruct
+{
+    uvec4 _packed[15];
+    uvec4 indices;
+};
+
+struct DefaultMaterialTransformMaterialStruct
+{
+    DefaultMaterialTransformSingleMaterialStruct material[64];
+};
+
+const uint _241 = (CORE_MATERIAL_FLAGS & 128u);
+const bool _242 = (_241 == 128u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+struct DefaultMaterialSingleMeshStruct
+{
+    mat4 world;
+    mat4 normalWorld;
+    mat4 prevWorld;
+    uvec4 indices;
+    uvec4 layers;
+    uvec4 customData[2];
+};
+
+struct DefaultMaterialMeshStruct
+{
+    DefaultMaterialSingleMeshStruct mesh[64];
+};
+
+struct DefaultMaterialSkinStruct
+{
+    mat4 jointMatrices[256];
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_SUBMESH_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+
+layout(std140) uniform s1_b2
+{
+    DefaultMaterialMaterialStruct uMaterialData;
+} _s1_b2;
+
+layout(std140) uniform s1_b3
+{
+    DefaultMaterialTransformMaterialStruct uMaterialTransformData;
+} _s1_b3;
+
+uniform sampler2D s2_b0;
+
+layout(location = 1) flat in uint inIndices;
+layout(location = 0) in vec2 inUv;
+
+uint GetUnpackFlatIndicesInstanceIdx(uint indices)
+{
+    return indices >> uint(16);
+}
+
+uint GetMaterialInstanceIndex(uint indices)
+{
+    uint instanceIdx = 0u;
+    bool _112;
+    if (_106)
+    {
+        _112 = _111;
+    }
+    else
+    {
+        _112 = _106;
+    }
+    if (_112)
+    {
+        uint param = indices;
+        instanceIdx = GetUnpackFlatIndicesInstanceIdx(param);
+    }
+    return instanceIdx;
+}
+
+uint GetUnpackTexCoordInfo(uint instanceIdx)
+{
+    return floatBitsToUint(_s1_b2.uMaterialData.material[instanceIdx].factors[11].y);
+}
+
+vec4 UnpackVec4Half2x16(uvec2 _packed)
+{
+    vec2 _63 = unpackHalf2x16(_packed.x);
+    vec4 up;
+    up.x = _63.x;
+    up.y = _63.y;
+    vec2 _71 = unpackHalf2x16(_packed.y);
+    up.z = _71.x;
+    up.w = _71.y;
+    return up;
+}
+
+DefaultMaterialUnpackedTexTransformStruct GetUnpackTextureTransform(uvec4 packedTexTransform)
+{
+    DefaultMaterialUnpackedTexTransformStruct dm;
+    dm.rotateScale = UnpackVec4Half2x16(packedTexTransform.xy);
+    dm.translate = UnpackVec4Half2x16(packedTexTransform.zw).xy;
+    return dm;
+}
+
+vec2 GetTransformedUV(DefaultMaterialUnpackedTexTransformStruct texTransform, vec2 uvInput)
+{
+    vec2 uv;
+    uv.x = dot(texTransform.rotateScale.xy, uvInput);
+    uv.y = dot(texTransform.rotateScale.zw, uvInput);
+    uv += texTransform.translate;
+    return uv;
+}
+
+vec2 GetFinalSamplingUV(vec2 inputUv, uint texCoordInfoBit, uint texCoordIdx, uint instanceIdx)
+{
+    uint param = instanceIdx;
+    uint texCoordInfo = GetUnpackTexCoordInfo(param);
+    vec2 uv = inputUv;
+    bool doTrans = ((texCoordInfo & 65535u) & texCoordInfoBit) == texCoordInfoBit;
+    if (_169 && doTrans)
+    {
+        DefaultMaterialUnpackedTexTransformStruct texTransform = GetUnpackTextureTransform(_s1_b3.uMaterialTransformData.material[instanceIdx]._packed[texCoordIdx]);
+        uv = GetTransformedUV(texTransform, uv);
+    }
+    return uv;
+}
+
+vec4 GetBaseColorSample(vec2 uvInput, uint instanceIdx)
+{
+    vec2 param = uvInput;
+    uint param_1 = 1u;
+    uint param_2 = 0u;
+    uint param_3 = instanceIdx;
+    vec2 uv = GetFinalSamplingUV(param, param_1, param_2, param_3);
+    vec4 _207 = texture(s2_b0, uv);
+    return _207;
+}
+
+vec4 GetUnpackBaseColor(uint instanceIdx)
+{
+    return _s1_b2.uMaterialData.material[instanceIdx].factors[0];
+}
+
+float GetUnpackAlphaCutoff(uint instanceIdx)
+{
+    return _s1_b2.uMaterialData.material[instanceIdx].factors[11].x;
+}
+
+void main()
+{
+    uint instanceIdx = GetMaterialInstanceIndex(inIndices);
+    vec4 baseColor = GetBaseColorSample(inUv, instanceIdx) * GetUnpackBaseColor(instanceIdx);
+    baseColor.w = clamp(baseColor.w, 0.0, 1.0);
+    if (_242)
+    {
+        if (baseColor.w < GetUnpackAlphaCutoff(instanceIdx))
+        {
+            discard;
+        }
+    }
+    else
+    {
+        if (baseColor.w < 0.5)
+        {
+            discard;
+        }
+    }
+}
+

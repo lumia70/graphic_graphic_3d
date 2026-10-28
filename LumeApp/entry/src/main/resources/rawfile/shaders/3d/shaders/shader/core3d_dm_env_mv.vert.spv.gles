@@ -1,0 +1,218 @@
+#version 320 es
+#extension GL_OVR_multiview2 : require
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(num_views = 1) in;
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+const uint _151 = (CORE_BACKEND_TYPE & 15u);
+const bool _152 = (_151 != 0u);
+uniform float CORE_FLIP_NDC ;
+
+struct DefaultMaterialEnvironmentStruct
+{
+    vec4 indirectSpecularColorFactor;
+    vec4 indirectDiffuseColorFactor;
+    vec4 envMapColorFactor;
+    vec4 values;
+    vec4 blendFactor;
+    mat4 envRotation;
+    uvec4 indices;
+    vec4 shIndirectCoefficients[9];
+    uvec4 multiEnvIndices;
+    vec4 packedSun;
+    vec4 packedPhases;
+    vec4 groundColor;
+    vec4 aerialPerspectiveParams;
+    vec4 skySunParams;
+    vec4 skySunColor;
+    vec4 skyMoonNightParams;
+    vec4 skyMoonColor;
+    vec4 padding[4];
+};
+
+struct DefaultMaterialFogStruct
+{
+    uvec4 indices;
+    vec4 firstLayer;
+    vec4 secondLayer;
+    vec4 baseFactors;
+    vec4 inscatteringColor;
+    vec4 envMapFactor;
+    vec4 additionalFactor;
+};
+
+struct DefaultMaterialSingleLightStruct
+{
+    vec4 pos;
+    vec4 dir;
+    vec4 color;
+    vec4 spotLightParams;
+    vec4 shadowFactors;
+    vec4 additionalFactor;
+    uvec4 flags;
+    uvec4 indices;
+};
+
+struct DefaultMaterialLightStruct
+{
+    uint directionalLightBeginIndex;
+    uint directionalLightCount;
+    uint pointLightBeginIndex;
+    uint pointLightCount;
+    uint spotLightBeginIndex;
+    uint spotLightCount;
+    uint rectLightBeginIndex;
+    uint rectLightCount;
+    uvec4 clusterSizes;
+    vec4 clusterFactors;
+    vec4 atlasSizeInvSize;
+    vec4 additionalFactors;
+    DefaultMaterialSingleLightStruct lights[64];
+    float vpcfRadius;
+    uint vpcfSampleCount;
+    uint paddings0;
+    uint paddings1;
+};
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct DefaultMaterialLightClusterData
+{
+    uint count;
+    uint lightIndices[15];
+};
+
+struct DefaultLightProbeDataIndexStruct
+{
+    uint lightProbeDataIndex;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_MATERIAL_TYPE = SPIRV_CROSS_CONSTANT_ID_0;
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+#ifndef SPIRV_CROSS_CONSTANT_ID_2
+#define SPIRV_CROSS_CONSTANT_ID_2 0u
+#endif
+const uint CORE_LIGHTING_FLAGS = SPIRV_CROSS_CONSTANT_ID_2;
+#ifndef SPIRV_CROSS_CONSTANT_ID_3
+#define SPIRV_CROSS_CONSTANT_ID_3 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_3;
+#ifndef SPIRV_CROSS_CONSTANT_ID_4
+#define SPIRV_CROSS_CONSTANT_ID_4 0u
+#endif
+const uint CORE_CAMERA_FLAGS = SPIRV_CROSS_CONSTANT_ID_4;
+#ifndef SPIRV_CROSS_CONSTANT_ID_5
+#define SPIRV_CROSS_CONSTANT_ID_5 0u
+#endif
+const uint CORE_DEFAULT_ENV_TYPE = SPIRV_CROSS_CONSTANT_ID_5;
+
+layout(std140) uniform s0_b1
+{
+    DefaultMaterialGeneralDataStruct uGeneralData;
+} _s0_b1;
+
+layout(std140) uniform s0_b0
+{
+    DefaultCameraMatrixStruct uCameras[16];
+} _s0_b0;
+
+layout(location = 0) out vec2 outUv;
+layout(location = 1) flat out uint outIndices;
+
+uint GetUnpackCameraIndex(DefaultMaterialGeneralDataStruct dmgds)
+{
+    return dmgds.indices.x;
+}
+
+uint GetUnpackCameraMultiViewIndex(uint inputCameraIndex, uint glViewIndex, uint viewCount, uvec4 multiViewIndices)
+{
+    uint cameraIdx = inputCameraIndex;
+    if (((viewCount > 0u) && (glViewIndex <= viewCount)) && (glViewIndex > 0u))
+    {
+        uint viewIndexShift = (glViewIndex >= 4u) ? 16u : 0u;
+        uint finalViewIndex = glViewIndex % 4u;
+        cameraIdx = multiViewIndices[finalViewIndex];
+        cameraIdx = (cameraIdx >> viewIndexShift) & 65535u;
+    }
+    return cameraIdx;
+}
+
+uint GetMultiViewCameraIndex()
+{
+    DefaultMaterialGeneralDataStruct arg;
+    arg.indices = _s0_b1.uGeneralData.indices;
+    arg.viewportSizeInvViewportSize = _s0_b1.uGeneralData.viewportSizeInvViewportSize;
+    arg.sceneTimingData = _s0_b1.uGeneralData.sceneTimingData;
+    uint cameraIdx = GetUnpackCameraIndex(arg);
+    uvec4 multiViewIndices = _s0_b0.uCameras[cameraIdx].multiViewIndices;
+    uint viewCount = multiViewIndices.x & 65535u;
+    uint glViewIndex = uint(gl_ViewID_OVR);
+    uint newCameraIdx = GetUnpackCameraMultiViewIndex(cameraIdx, glViewIndex, viewCount, multiViewIndices);
+    return newCameraIdx;
+}
+
+uint GetPackFlatIndices(uint cameraIdx, uint instanceIdx)
+{
+    return (instanceIdx << uint(16)) | (cameraIdx & 65535u);
+}
+
+void main()
+{
+    float x = (-1.0) + float((gl_VertexID & 1) << 2);
+    float y = 1.0 - float((gl_VertexID & 2) << 1);
+    gl_Position = vec4(x, y, 1.0, 1.0);
+    if (_152)
+    {
+        gl_Position = vec4(gl_Position.x, gl_Position.y * CORE_FLIP_NDC, (gl_Position.z * 2.0) - gl_Position.w, gl_Position.w);
+    }
+    outUv = vec2(x, y);
+    uint cameraIdx = GetMultiViewCameraIndex();
+    outIndices = GetPackFlatIndices(cameraIdx, 0u);
+}
+

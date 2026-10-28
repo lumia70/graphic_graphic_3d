@@ -1,0 +1,1128 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+struct ScatteringParams
+{
+    vec3 planetPosition;
+    float planetRadius;
+    float atmoRadius;
+    vec3 betaRay;
+    vec3 betaMie;
+    vec3 betaAbsorption;
+    vec3 betaAmbient;
+    float g;
+    float heightRay;
+    float heightMie;
+    float heightAbsorption;
+    float absorptionFalloff;
+    int numStepsPrimary;
+    int numStepsLight;
+};
+
+struct Ray
+{
+    vec3 o;
+    vec3 dir;
+};
+
+struct ScatteringLightSource
+{
+    vec3 dir;
+    vec3 intensity;
+};
+
+uniform float CORE_FLIP_NDC ;
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+struct DefaultMaterialEnvironmentStruct
+{
+    vec4 indirectSpecularColorFactor;
+    vec4 indirectDiffuseColorFactor;
+    vec4 envMapColorFactor;
+    vec4 values;
+    vec4 blendFactor;
+    mat4 envRotation;
+    uvec4 indices;
+    vec4 shIndirectCoefficients[9];
+    uvec4 multiEnvIndices;
+    vec4 packedSun;
+    vec4 packedPhases;
+    vec4 groundColor;
+    vec4 aerialPerspectiveParams;
+    vec4 skySunParams;
+    vec4 skySunColor;
+    vec4 skyMoonNightParams;
+    vec4 skyMoonColor;
+    vec4 padding[4];
+};
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_3
+#define SPIRV_CROSS_CONSTANT_ID_3 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_3;
+const bool _2757 = (CORE_POST_PROCESS_FLAGS > 0u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+
+struct DefaultMaterialFogStruct
+{
+    uvec4 indices;
+    vec4 firstLayer;
+    vec4 secondLayer;
+    vec4 baseFactors;
+    vec4 inscatteringColor;
+    vec4 envMapFactor;
+    vec4 additionalFactor;
+};
+
+struct DefaultMaterialSingleLightStruct
+{
+    vec4 pos;
+    vec4 dir;
+    vec4 color;
+    vec4 spotLightParams;
+    vec4 shadowFactors;
+    vec4 additionalFactor;
+    uvec4 flags;
+    uvec4 indices;
+};
+
+struct DefaultMaterialLightStruct
+{
+    uint directionalLightBeginIndex;
+    uint directionalLightCount;
+    uint pointLightBeginIndex;
+    uint pointLightCount;
+    uint spotLightBeginIndex;
+    uint spotLightCount;
+    uint rectLightBeginIndex;
+    uint rectLightCount;
+    uvec4 clusterSizes;
+    vec4 clusterFactors;
+    vec4 atlasSizeInvSize;
+    vec4 additionalFactors;
+    DefaultMaterialSingleLightStruct lights[64];
+    float vpcfRadius;
+    uint vpcfSampleCount;
+    uint paddings0;
+    uint paddings1;
+};
+
+struct DefaultMaterialLightClusterData
+{
+    uint count;
+    uint lightIndices[15];
+};
+
+struct DefaultLightProbeDataIndexStruct
+{
+    uint lightProbeDataIndex;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_MATERIAL_TYPE = SPIRV_CROSS_CONSTANT_ID_0;
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+#ifndef SPIRV_CROSS_CONSTANT_ID_2
+#define SPIRV_CROSS_CONSTANT_ID_2 0u
+#endif
+const uint CORE_LIGHTING_FLAGS = SPIRV_CROSS_CONSTANT_ID_2;
+#ifndef SPIRV_CROSS_CONSTANT_ID_4
+#define SPIRV_CROSS_CONSTANT_ID_4 0u
+#endif
+const uint CORE_CAMERA_FLAGS = SPIRV_CROSS_CONSTANT_ID_4;
+#ifndef SPIRV_CROSS_CONSTANT_ID_5
+#define SPIRV_CROSS_CONSTANT_ID_5 0u
+#endif
+const uint CORE_DEFAULT_ENV_TYPE = SPIRV_CROSS_CONSTANT_ID_5;
+
+layout(std140) uniform s0_b5
+{
+    GlobalPostProcessStruct uPostProcessData;
+} _s0_b5;
+
+layout(std140) uniform s0_b0
+{
+    DefaultCameraMatrixStruct uCameras[16];
+} _s0_b0;
+
+layout(std140) uniform s0_b2
+{
+    DefaultMaterialEnvironmentStruct uEnvironmentDataArray[8];
+} _s0_b2;
+
+layout(std140) uniform s0_b1
+{
+    DefaultMaterialGeneralDataStruct uGeneralData;
+} _s0_b1;
+
+uniform sampler2D s3_b3;
+uniform sampler2D s3_b0;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 1) flat in uint inIndices;
+layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outVelocityNormal;
+
+uint GetUnpackFlatIndicesCameraIdx(uint indices)
+{
+    return indices & 65535u;
+}
+
+Ray CreateRay(uint cameraIdx)
+{
+    vec3 position = _s0_b0.uCameras[cameraIdx].view[3].xzy;
+    mat4 a = mat4(vec4(_s0_b0.uCameras[cameraIdx].view[0]), vec4(_s0_b0.uCameras[cameraIdx].view[1]), vec4(_s0_b0.uCameras[cameraIdx].view[2]), vec4(0.0, 0.0, 0.0, 1.0));
+    mat4 v = transpose(a) * _s0_b0.uCameras[cameraIdx].projInv;
+    vec2 coord = vec2(inUv.x, inUv.y);
+    vec2 clip = coord;
+    vec4 far = v * vec4(clip, 1.0, 1.0);
+    vec4 near = v[2];
+    float _1588 = near.w;
+    vec4 _1589 = near;
+    vec3 _1592 = _1589.xyz / vec3(_1588);
+    near.x = _1592.x;
+    near.y = _1592.y;
+    near.z = _1592.z;
+    float _1600 = far.w;
+    vec4 _1601 = far;
+    vec3 _1604 = _1601.xyz / vec3(_1600);
+    far.x = _1604.x;
+    far.y = _1604.y;
+    far.z = _1604.z;
+    Ray ray;
+    ray.o = near.xyz - position;
+    ray.dir = normalize(far.xyz - near.xyz);
+    return ray;
+}
+
+vec3 GetSunPos()
+{
+    return _s0_b2.uEnvironmentDataArray[0].packedSun.xyz;
+}
+
+ScatteringParams DefaultParameters()
+{
+    return ScatteringParams(vec3(0.0, -6371000.0, 0.0), 6371000.0, 6471000.0, vec3(5.5000000429572537541389465332031e-06, 1.2999999853491317480802536010742e-05, 2.2399999579647555947303771972656e-05), vec3(3.9999999899009708315134048461914e-06), vec3(2.0400000721565447747707366943359e-05, 4.970000009052455425262451171875e-05, 1.9500000689731677994132041931152e-06), vec3(5.0000000667571598000904486980289e-11), 0.699999988079071044921875, 8000.0, 1200.0, 30000.0, 4000.0, 12, 4);
+}
+
+float Safeacos(float x)
+{
+    return acos(clamp(x, -1.0, 1.0));
+}
+
+vec3 GetValFromSkyLUT(vec3 rayDir, vec3 sunDir, vec3 viewPos)
+{
+    float height = length(viewPos);
+    vec3 up = viewPos / vec3(height);
+    float horizonAngle = Safeacos(sqrt((height * height) - 40589640.0) / height);
+    float altitudeAngle = -(horizonAngle - acos(dot(rayDir, up)));
+    float azimuthAngle;
+    if (abs(altitudeAngle) > 1.570696353912353515625)
+    {
+        azimuthAngle = 0.0;
+    }
+    else
+    {
+        vec3 right = cross(sunDir, up);
+        vec3 forward = cross(up, right);
+        vec3 projectedDir = normalize(rayDir - (up * dot(rayDir, up)));
+        float sinTheta = dot(projectedDir, right);
+        float cosTheta = dot(projectedDir, forward);
+        azimuthAngle = atan(sinTheta, cosTheta);
+        if (azimuthAngle < 0.0)
+        {
+            azimuthAngle += 6.283185482025146484375;
+        }
+    }
+    float v = 0.5 + ((0.5 * sign(altitudeAngle)) * sqrt((abs(altitudeAngle) * 2.0) / 3.1415927410125732421875));
+    vec2 uv = vec2(azimuthAngle / 6.283185482025146484375, v);
+    vec3 color = texture(s3_b0, uv).xyz;
+    return color;
+}
+
+float GetSkySunAngularRadiusRadians()
+{
+    return 0.5 * radians(clamp(_s0_b2.uEnvironmentDataArray[0].skySunParams.x, 0.00999999977648258209228515625, 20.0));
+}
+
+vec3 SunWithBloom(vec3 rayDir, vec3 sunDir)
+{
+    float sunAngularRadius = GetSkySunAngularRadiusRadians();
+    float minSunCosTheta = cos(sunAngularRadius);
+    float cosTheta = dot(rayDir, sunDir);
+    if (cosTheta >= minSunCosTheta)
+    {
+        return vec3(1.0);
+    }
+    float offset = (minSunCosTheta - cosTheta) * (0.0046251225285232067108154296875 / max(sunAngularRadius, 9.9999999747524270787835121154785e-07));
+    float gaussianBloom = exp((-offset) * 50000.0) * 0.5;
+    float invBloom = (1.0 / (0.0199999995529651641845703125 + (offset * 300.0))) * 0.00999999977648258209228515625;
+    return vec3(gaussianBloom + invBloom);
+}
+
+vec3 GetSkySunTint()
+{
+    return max(_s0_b2.uEnvironmentDataArray[0].skySunColor.xyz, vec3(0.0));
+}
+
+float GetSkySunOpacity()
+{
+    return clamp(_s0_b2.uEnvironmentDataArray[0].skySunParams.y, 0.0, 1.0);
+}
+
+float RayIntersectSphere(vec3 ro, vec3 rd, float rad)
+{
+    float b = dot(ro, rd);
+    float c = dot(ro, ro) - (rad * rad);
+    if ((c > 0.0) && (b > 0.0))
+    {
+        return -1.0;
+    }
+    float discr = (b * b) - c;
+    if (discr < 0.0)
+    {
+        return -1.0;
+    }
+    if (discr > (b * b))
+    {
+        return (-b) + sqrt(discr);
+    }
+    return (-b) - sqrt(discr);
+}
+
+vec2 GetTransmittanceTextureUvFromRMu(float r, float mu)
+{
+    float h = 1133.2254638671875;
+    float rho = sqrt(max(0.0, (r * r) - 40589640.0));
+    float dMin = 6471.0 - r;
+    float dMax = rho + h;
+    float discriminant = ((r * r) * ((mu * mu) - 1.0)) + 41873840.0;
+    float d = max(0.0, ((-r) * mu) + sqrt(max(0.0, discriminant)));
+    float xMu = clamp((d - dMin) / (dMax - dMin), 0.0, 1.0);
+    float xR = clamp(rho / h, 0.0, 1.0);
+    return vec2(xMu, xR);
+}
+
+vec3 GetValFromTransmittanceLUT(vec3 viewPos, vec3 sunDir)
+{
+    ivec2 bufferRes = textureSize(s3_b3, 0);
+    float height = length(viewPos);
+    vec3 up = viewPos / vec3(height);
+    float sunCosZenithAngle = dot(sunDir, up);
+    float param = height;
+    float param_1 = sunCosZenithAngle;
+    vec2 uv = GetTransmittanceTextureUvFromRMu(param, param_1);
+    return texture(s3_b3, uv).xyz;
+}
+
+vec3 GetMoonTint()
+{
+    return max(_s0_b2.uEnvironmentDataArray[0].skyMoonColor.xyz, vec3(0.0));
+}
+
+float GetStarsIntensity()
+{
+    return max(_s0_b2.uEnvironmentDataArray[0].skyMoonNightParams.z, 0.0);
+}
+
+float GetNightSkyIntensity()
+{
+    return max(_s0_b2.uEnvironmentDataArray[0].skyMoonNightParams.w, 0.0);
+}
+
+float ComputeShadow(vec3 N, vec3 V, vec3 L)
+{
+    float dotNV = max(9.9999999747524270787835121154785e-07, dot(N, V));
+    float dotNL = max(9.9999999747524270787835121154785e-07, dot(N, L));
+    float shadow = dotNL / (dotNL + dotNV);
+    return shadow;
+}
+
+float GetMoonOpacity()
+{
+    return clamp(_s0_b2.uEnvironmentDataArray[0].skyMoonNightParams.y, 0.0, 1.0);
+}
+
+float GetMoonAngularRadiusRadians()
+{
+    return 0.5 * radians(clamp(_s0_b2.uEnvironmentDataArray[0].skyMoonNightParams.x, 0.00999999977648258209228515625, 20.0));
+}
+
+vec3 CalculateMoonBloom(vec3 dir, vec3 moonDir, vec3 moonColor)
+{
+    float moonAngularRadius = GetMoonAngularRadiusRadians();
+    float theta = Safeacos(clamp(dot(dir, moonDir), -1.0, 1.0));
+    if (theta < moonAngularRadius)
+    {
+        return vec3(0.0);
+    }
+    float edgeDist = theta - moonAngularRadius;
+    float gaussianBloom = exp((-edgeDist) * 5000.0) * 0.300000011920928955078125;
+    float invBloom = (1.0 / (0.001000000047497451305389404296875 + (edgeDist * 50.0))) * 0.004999999888241291046142578125;
+    float bloomIntensity = max(_s0_b2.uEnvironmentDataArray[0].packedPhases.y, 0.0);
+    bloomIntensity *= (GetMoonOpacity() * GetNightSkyIntensity());
+    return (moonColor * (gaussianBloom + invBloom)) * bloomIntensity;
+}
+
+float Hash(vec2 p)
+{
+    return fract(sin(dot(p, vec2(5.340000152587890625, 7.13000011444091796875))) * 5865.2734375);
+}
+
+float Noise(vec2 p)
+{
+    vec2 n = floor(p);
+    vec2 f = fract(p);
+    f = ((f * f) * f) * (vec2(3.0) - (f * 2.0));
+    vec2 add = vec2(1.0, 0.0);
+    vec2 param = n + add.yy;
+    vec2 param_1 = n + add;
+    vec2 param_2 = n + add.yx;
+    vec2 param_3 = n + add.xx;
+    float h = mix(mix(Hash(param), Hash(param_1), f.x), mix(Hash(param_2), Hash(param_3), f.x), f.y);
+    return h;
+}
+
+float Fbm(inout vec2 p)
+{
+    float h = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 4; i++)
+    {
+        vec2 param = p;
+        h += (Noise(param) * a);
+        p *= 2.0;
+        a *= 0.5;
+    }
+    return h;
+}
+
+vec2 Hash2(vec2 p)
+{
+    return fract(sin(vec2(dot(p, vec2(123.40000152587890625, 748.5999755859375)), dot(p, vec2(547.29998779296875, 659.29998779296875)))) * 5232.85302734375);
+}
+
+float Voronoi(vec2 p)
+{
+    vec2 n = floor(p);
+    vec2 f = fract(p);
+    float md = 5.0;
+    for (int i = -1; i <= 1; i++)
+    {
+        for (int j = -1; j <= 1; j++)
+        {
+            vec2 g = vec2(float(i), float(j));
+            vec2 param = n + g;
+            vec2 o = Hash2(param);
+            vec2 r = (g + o) - f;
+            float d = dot(r, r);
+            md = min(md, d);
+        }
+    }
+    return 1.0 - md;
+}
+
+vec4 RenderMoon(vec3 dir, vec3 moonDir, vec3 moonColor)
+{
+    float cosTheta = dot(dir, moonDir);
+    float moonAngularRadius = GetMoonAngularRadiusRadians();
+    float theta = Safeacos(clamp(cosTheta, -1.0, 1.0));
+    float aaWidth = max(fwidth(theta), 9.9999997473787516355514526367188e-05);
+    if (theta > (moonAngularRadius + aaWidth))
+    {
+        return vec4(0.0);
+    }
+    float normRadius = theta / moonAngularRadius;
+    vec3 up = mix(vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), bvec3(abs(moonDir.y) > 0.9900000095367431640625));
+    vec3 right = normalize(cross(up, moonDir));
+    up = normalize(cross(moonDir, right));
+    vec3 offsetDir = normalize(dir - (moonDir * cosTheta));
+    vec2 uv;
+    uv.x = dot(offsetDir, right) * normRadius;
+    uv.y = dot(offsetDir, up) * normRadius;
+    uv *= 0.5;
+    vec2 moonTexCoords = uv / vec2(0.439999997615814208984375);
+    moonTexCoords *= 2.0;
+    vec2 param = moonTexCoords * 2.0;
+    float _2095 = Fbm(param);
+    float tex1 = _2095;
+    vec2 param_1 = moonTexCoords * 6.0;
+    float vor = Voronoi(param_1);
+    vor = smoothstep(0.0, 0.699999988079071044921875, vor);
+    vec2 param_2 = moonTexCoords * 15.0;
+    float tex2 = Noise(param_2);
+    vec3 surfaceColor = moonColor;
+    surfaceColor *= (0.4000000059604644775390625 + (0.5 * tex1));
+    surfaceColor *= (0.699999988079071044921875 + (0.20000000298023223876953125 * vor));
+    surfaceColor *= (0.85000002384185791015625 + (0.100000001490116119384765625 * tex2));
+    float bloomIntensity = max(_s0_b2.uEnvironmentDataArray[0].packedPhases.y, 0.0) * GetNightSkyIntensity();
+    vec3 surfaceBloom = moonColor * bloomIntensity;
+    surfaceColor += surfaceBloom;
+    float discAlpha = 1.0 - smoothstep(moonAngularRadius - aaWidth, moonAngularRadius + aaWidth, theta);
+    discAlpha *= (GetMoonOpacity() * GetNightSkyIntensity());
+    return vec4(surfaceColor, discAlpha);
+}
+
+vec2 Hash22(vec2 p)
+{
+    vec3 p3 = fract(p.xyx * vec3(0.103100001811981201171875, 0.10300000011920928955078125, 0.097300000488758087158203125));
+    p3 += vec3(dot(p3, p3.yzx + vec3(33.3300018310546875)));
+    return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+vec3 CalculateStars(vec3 rd, float sun_elevation, float time)
+{
+    float brightness = 0.0;
+    vec2 star_uv = rd.xz / vec2(rd.y + 1.0);
+    vec2 id = floor((star_uv * 700.0) + vec2(234.0));
+    vec2 param = id;
+    vec2 hash = Hash22(param);
+    brightness = step(0.999000012874603271484375, hash.x);
+    float twinkleSpeed = 3.0;
+    float twinkle = 0.5 + (0.5 * sin((time * twinkleSpeed) + (hash.y * 6.28318023681640625)));
+    twinkle = mix(0.300000011920928955078125, 1.0, twinkle);
+    brightness *= twinkle;
+    float star_factor = clamp((-sun_elevation) * 10.0, 0.0, 1.0);
+    brightness *= star_factor;
+    return vec3(brightness);
+}
+
+vec4 RenderScene(vec3 pos, vec3 dir, ScatteringLightSource light, ScatteringParams params, vec3 viewPos, float planetIntersect)
+{
+    vec4 color = vec4(0.0, 0.0, 0.0, 999999995904.0);
+    vec4 moonColor = vec4(GetMoonTint(), 1.0);
+    vec3 bluishTint = vec3(0.100000001490116119384765625, 0.1500000059604644775390625, 0.300000011920928955078125);
+    vec3 upVector = normalize(viewPos - params.planetPosition);
+    float sunElevation = dot(upVector, light.dir);
+    bool isNight = sunElevation < 0.0;
+    float brightness = clamp(_s0_b2.uEnvironmentDataArray[0].packedPhases.w, 0.0, 1.0);
+    float starsFadeFactor = smoothstep(0.100000001490116119384765625, -0.1500000059604644775390625, sunElevation);
+    float glowFadeFactor = smoothstep(0.100000001490116119384765625, -0.300000011920928955078125, sunElevation);
+    float maxStarsIntensity = (0.4000000059604644775390625 * GetStarsIntensity()) * GetNightSkyIntensity();
+    float starsIntensity = starsFadeFactor * maxStarsIntensity;
+    if (planetIntersect >= 0.0)
+    {
+        color.w = max(planetIntersect, 0.0);
+        vec3 samplePos = (pos + (dir * planetIntersect)) - params.planetPosition;
+        vec3 surfaceNormal = normalize(samplePos);
+        vec3 moonLight = vec3(0.0);
+        vec3 sunLight = vec3(0.0);
+        vec3 nightSkyHorizonColor = vec3(0.0);
+        if (isNight)
+        {
+            float moonIntensity = 0.4000000059604644775390625;
+            float moonFactor = max(0.0, dot(surfaceNormal, -light.dir));
+            moonLight = (moonColor.xyz * moonFactor) * moonIntensity;
+            vec3 param = surfaceNormal;
+            vec3 param_1 = -dir;
+            vec3 param_2 = -light.dir;
+            moonLight *= (ComputeShadow(param, param_1, param_2) * brightness);
+            moonLight *= (GetMoonOpacity() * GetNightSkyIntensity());
+            float glowIntensity = clamp(_s0_b2.uEnvironmentDataArray[0].packedPhases.z, 0.0, 0.100000001490116119384765625);
+            nightSkyHorizonColor = (bluishTint * glowIntensity) * GetNightSkyIntensity();
+        }
+        else
+        {
+            vec3 param_3 = surfaceNormal;
+            vec3 param_4 = -dir;
+            vec3 param_5 = light.dir;
+            sunLight *= (ComputeShadow(param_3, param_4, param_5) * brightness);
+        }
+        vec4 _2298 = color;
+        vec3 _2300 = _2298.xyz + ((sunLight + moonLight) + nightSkyHorizonColor);
+        color.x = _2300.x;
+        color.y = _2300.y;
+        color.z = _2300.z;
+    }
+    else
+    {
+        vec3 param_6 = dir;
+        vec3 param_7 = -light.dir;
+        vec3 param_8 = moonColor.xyz;
+        vec3 moonBloom = CalculateMoonBloom(param_6, param_7, param_8);
+        vec4 _2320 = color;
+        vec3 _2322 = _2320.xyz + moonBloom;
+        color.x = _2322.x;
+        color.y = _2322.y;
+        color.z = _2322.z;
+        vec3 param_9 = dir;
+        vec3 param_10 = -light.dir;
+        vec3 param_11 = moonColor.xyz;
+        vec4 moonResult = RenderMoon(param_9, param_10, param_11);
+        moonResult.w = clamp(moonResult.w, 0.0, 1.0);
+        if (moonResult.w > 0.0)
+        {
+            vec4 _2349 = color;
+            vec3 _2360 = (_2349.xyz * (1.0 - moonResult.w)) + (moonResult.xyz * moonResult.w);
+            color.x = _2360.x;
+            color.y = _2360.y;
+            color.z = _2360.z;
+        }
+        if (moonResult.w <= 0.0)
+        {
+            vec3 param_12 = dir;
+            float param_13 = sunElevation;
+            float param_14 = _s0_b1.uGeneralData.sceneTimingData.z;
+            vec4 _2386 = color;
+            vec3 _2388 = _2386.xyz + (CalculateStars(param_12, param_13, param_14) * starsIntensity);
+            color.x = _2388.x;
+            color.y = _2388.y;
+            color.z = _2388.z;
+        }
+        if (isNight)
+        {
+            float horizonGlow = exp(2.0 * (1.0 - dir.y));
+            float glowIntensity_1 = clamp(_s0_b2.uEnvironmentDataArray[0].packedPhases.z, 0.0, 0.100000001490116119384765625);
+            vec4 _2417 = color;
+            vec3 _2419 = _2417.xyz + ((bluishTint * ((horizonGlow * glowIntensity_1) * glowFadeFactor)) * GetNightSkyIntensity());
+            color.x = _2419.x;
+            color.y = _2419.y;
+            color.z = _2419.z;
+        }
+    }
+    return color;
+}
+
+vec3 GetSkyEnvTint()
+{
+    vec4 envFactor = _s0_b2.uEnvironmentDataArray[0].envMapColorFactor;
+    if (envFactor.w > 9.9999999747524270787835121154785e-07)
+    {
+        return max(envFactor.xyz / vec3(envFactor.w), vec3(0.0));
+    }
+    return vec3(1.0);
+}
+
+vec2 GetFragCoordUv(vec2 fragCoord, vec2 inverseTexelSize)
+{
+    vec2 uv = fragCoord * inverseTexelSize;
+    if (CORE_FLIP_NDC < 0.0)
+    {
+        uv = vec2(uv.x, 1.0 - uv.y);
+    }
+    return uv;
+}
+
+void PostProcessWhiteBalanceBlock(uint postProcessFlags, vec4 whiteBalanceFactor, vec3 inCol, out vec3 outCol)
+{
+    outCol = inCol;
+    if ((postProcessFlags & 64u) == 64u)
+    {
+        float temperature = clamp(whiteBalanceFactor.x, -100.0, 100.0);
+        float tint = clamp(whiteBalanceFactor.y, -100.0, 100.0);
+        float normalizedTemp = (temperature * 1.66999995708465576171875) / 100.0;
+        float normalizedTint = (tint * 1.66999995708465576171875) / 100.0;
+        float chromaticityX = 0.312709987163543701171875 - (normalizedTemp * ((normalizedTemp < 0.0) ? 0.100000001490116119384765625 : 0.0500000007450580596923828125));
+        chromaticityX = clamp(chromaticityX, 0.100000001490116119384765625, 0.699999988079071044921875);
+        float illuminantY = ((2.86999988555908203125 * chromaticityX) - ((3.0 * chromaticityX) * chromaticityX)) - 0.2750950753688812255859375;
+        float chromaticityY = illuminantY + (normalizedTint * 0.0500000007450580596923828125);
+        chromaticityY = clamp(chromaticityY, 0.100000001490116119384765625, 0.89999997615814208984375);
+        float xyzY = 1.0;
+        float xyzX = (xyzY * chromaticityX) / chromaticityY;
+        float xyzZ = (xyzY * ((1.0 - chromaticityX) - chromaticityY)) / chromaticityY;
+        float lmsL = ((0.732800006866455078125 * xyzX) + (0.4296000003814697265625 * xyzY)) - (0.1624000072479248046875 * xyzZ);
+        float lmsM = (((-0.703599989414215087890625) * xyzX) + (1.6974999904632568359375 * xyzY)) + (0.006099999882280826568603515625 * xyzZ);
+        float lmsS = ((0.0030000000260770320892333984375 * xyzX) + (0.013600000180304050445556640625 * xyzY)) + (0.98339998722076416015625 * xyzZ);
+        vec3 standardLms = vec3(0.94923698902130126953125, 1.035419940948486328125, 1.0872800350189208984375);
+        vec3 targetLms = vec3(lmsL, lmsM, lmsS);
+        vec3 balance = vec3(standardLms.x / targetLms.x, standardLms.y / targetLms.y, standardLms.z / targetLms.z);
+        vec3 lmsColor = mat3(vec3(0.390404999256134033203125, 0.070841602981090545654296875, 0.02310819923877716064453125), vec3(0.549941003322601318359375, 0.963172018527984619140625, 0.1280210018157958984375), vec3(0.008926319889724254608154296875, 0.001357750035822391510009765625, 0.936245024204254150390625)) * inCol;
+        lmsColor *= balance;
+        outCol = mat3(vec3(2.85846996307373046875, -0.21018199622631072998046875, -0.0418119989335536956787109375), vec3(-1.62879002094268798828125, 1.1582000255584716796875, -0.118169002234935760498046875), vec3(-0.0248910002410411834716796875, 0.0003242809907533228397369384765625, 1.0686700344085693359375)) * lmsColor;
+    }
+}
+
+mat4 BrightnessMatrix(float brightness)
+{
+    mat4 matrix = mat4(vec4(1.0, 0.0, 0.0, 0.0), vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, 0.0, 1.0, 0.0), vec4(0.0, 0.0, 0.0, 1.0));
+    vec3 _500 = vec3(brightness);
+    matrix[3].x = _500.x;
+    matrix[3].y = _500.y;
+    matrix[3].z = _500.z;
+    return matrix;
+}
+
+vec3 LinearToLogC(vec3 color)
+{
+    return ((log(max((color * 5.555555820465087890625) + vec3(0.04799599945545196533203125), vec3(0.0))) * 0.24416099488735198974609375) / vec3(2.3025848865509033203125)) + vec3(0.3860360085964202880859375);
+}
+
+vec3 LogCToLinear(vec3 color)
+{
+    return (pow(vec3(10.0), (color - vec3(0.3860360085964202880859375)) / vec3(0.24416099488735198974609375)) - vec3(0.04799599945545196533203125)) / vec3(5.555555820465087890625);
+}
+
+vec3 ContrastLogC(vec3 color, float contrast)
+{
+    vec3 param = color;
+    vec3 colorLog = LinearToLogC(param);
+    colorLog = ((colorLog - vec3(0.41358840465545654296875)) * contrast) + vec3(0.41358840465545654296875);
+    vec3 param_1 = colorLog;
+    return LogCToLinear(param_1);
+}
+
+vec3 HueShift(vec3 color, float hueShift)
+{
+    float hueRadians = radians(hueShift);
+    float cosAngle = cos(hueRadians);
+    return ((color * cosAngle) + (cross(vec3(0.57735002040863037109375), color) * sin(hueRadians))) + ((vec3(0.57735002040863037109375) * dot(vec3(0.57735002040863037109375), color)) * (1.0 - cosAngle));
+}
+
+mat4 SaturationMatrix(float saturation)
+{
+    float t = 1.0 - saturation;
+    float sr = t * 0.2125999927520751953125;
+    float sg = t * 0.715200006961822509765625;
+    float sb = t * 0.072200000286102294921875;
+    vec3 red = vec3(sr + saturation, sr, sr);
+    vec3 green = vec3(sg, sg + saturation, sg);
+    vec3 blue = vec3(sb, sb, sb + saturation);
+    mat4 matrix = mat4(vec4(1.0, 0.0, 0.0, 0.0), vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, 0.0, 1.0, 0.0), vec4(0.0, 0.0, 0.0, 1.0));
+    matrix[0].x = red.x;
+    matrix[0].y = red.y;
+    matrix[0].z = red.z;
+    matrix[1].x = green.x;
+    matrix[1].y = green.y;
+    matrix[1].z = green.z;
+    matrix[2].x = blue.x;
+    matrix[2].y = blue.y;
+    matrix[2].z = blue.z;
+    return matrix;
+}
+
+void PostProcessColorAdjustmentsBlock(uint postProcessFlags, vec4 colorAdjustmentsFactor, vec4 filterColor, vec3 inCol, inout vec3 outCol)
+{
+    outCol = inCol;
+    if ((postProcessFlags & 128u) == 128u)
+    {
+        float brightness = colorAdjustmentsFactor.x;
+        float contrast = colorAdjustmentsFactor.y;
+        float saturation = colorAdjustmentsFactor.z;
+        float param = brightness;
+        outCol = (BrightnessMatrix(param) * vec4(outCol, 1.0)).xyz;
+        vec3 param_1 = outCol;
+        float param_2 = contrast;
+        outCol = ContrastLogC(param_1, param_2);
+        outCol = clamp(outCol, vec3(0.0), vec3(64512.0));
+        outCol *= filterColor.xyz;
+        float hueShift = colorAdjustmentsFactor.w;
+        if (abs(hueShift) > 0.001000000047497451305389404296875)
+        {
+            vec3 param_3 = outCol;
+            float param_4 = hueShift;
+            outCol = HueShift(param_3, param_4);
+        }
+        float param_5 = saturation;
+        outCol = (SaturationMatrix(param_5) * vec4(outCol, 1.0)).xyz;
+        outCol = clamp(outCol, vec3(0.0), vec3(64512.0));
+    }
+}
+
+vec3 TonemapAces(vec3 x)
+{
+    return (x * ((x * 2.5099999904632568359375) + vec3(0.02999999932944774627685546875))) / ((x * ((x * 2.4300000667572021484375) + vec3(0.589999973773956298828125))) + vec3(0.14000000059604644775390625));
+}
+
+vec3 TonemapAcesFilmRec2020(vec3 x)
+{
+    float a = 15.80000019073486328125;
+    float b = 2.11999988555908203125;
+    float c = 1.2000000476837158203125;
+    float d = 5.9200000762939453125;
+    float e = 1.89999997615814208984375;
+    return (x * ((x * a) + vec3(b))) / ((x * ((x * c) + vec3(d))) + vec3(e));
+}
+
+float TonemapFilmic(float x)
+{
+    return (((x * ((0.1500000059604644775390625 * x) + 0.0500000007450580596923828125)) + 0.0040000001899898052215576171875) / ((x * ((0.1500000059604644775390625 * x) + 0.5)) + 0.0599999986588954925537109375)) - 0.066666670143604278564453125;
+}
+
+vec3 TonemapFilmic(vec3 x)
+{
+    vec3 curr = (((x * ((x * 0.1500000059604644775390625) + vec3(0.0500000007450580596923828125))) + vec3(0.0040000001899898052215576171875)) / ((x * ((x * 0.1500000059604644775390625) + vec3(0.5))) + vec3(0.0599999986588954925537109375))) - vec3(0.066666670143604278564453125);
+    float param = 11.19999980926513671875;
+    float whiteScale = 1.0 / TonemapFilmic(param);
+    return curr * vec3(whiteScale);
+}
+
+vec3 TonemapPbrNeutral(inout vec3 color)
+{
+    float x = min(color.x, min(color.y, color.z));
+    float _767;
+    if (x < 0.07999999821186065673828125)
+    {
+        _767 = x - ((6.25 * x) * x);
+    }
+    else
+    {
+        _767 = 0.039999999105930328369140625;
+    }
+    float offset = _767;
+    color -= vec3(offset);
+    float peak = max(color.x, max(color.y, color.z));
+    if (peak < 0.7599999904632568359375)
+    {
+        return color;
+    }
+    float newPeak = 1.0 - (0.057599999010562896728515625 / ((peak + 0.23999999463558197021484375) - 0.7599999904632568359375));
+    color *= (newPeak / peak);
+    float g = 1.0 - (1.0 / ((0.1500000059604644775390625 * (peak - newPeak)) + 1.0));
+    return mix(color, vec3(newPeak), vec3(g));
+}
+
+void PostProcessTonemapBlock(uint postProcessFlags, vec4 tonemapFactor, vec3 inCol, inout vec3 outCol)
+{
+    outCol = inCol;
+    if ((postProcessFlags & 1u) == 1u)
+    {
+        float exposure = tonemapFactor.x;
+        vec3 x = outCol * exposure;
+        uint tonemapType = uint(tonemapFactor.w);
+        if (tonemapType == 0u)
+        {
+            vec3 param = x;
+            outCol = TonemapAces(param);
+        }
+        else
+        {
+            if (tonemapType == 1u)
+            {
+                vec3 param_1 = x;
+                outCol = TonemapAcesFilmRec2020(param_1);
+            }
+            else
+            {
+                if (tonemapType == 2u)
+                {
+                    vec3 param_2 = x * 6.0;
+                    outCol = TonemapFilmic(param_2);
+                }
+                else
+                {
+                    if (tonemapType == 3u)
+                    {
+                        vec3 param_3 = x;
+                        vec3 _879 = TonemapPbrNeutral(param_3);
+                        outCol = _879;
+                    }
+                }
+            }
+        }
+    }
+}
+
+float TriangleNoise(inout vec2 n)
+{
+    n = fract(n * vec2(5.398700237274169921875, 5.442100048065185546875));
+    n += vec2(dot(n.yx, n + vec2(21.5351009368896484375, 14.3136997222900390625)));
+    float xy = n.x * n.y;
+    return (fract(xy * 95.43070220947265625) + fract(xy * 75.0496063232421875)) - 1.0;
+}
+
+void PostProcessDitherBlock(uint postProcessFlags, vec4 ditherFactor, vec2 uv, vec3 inCol, inout vec3 outCol)
+{
+    outCol = inCol;
+    if ((postProcessFlags & 4u) == 4u)
+    {
+        uint ditherType = uint(ditherFactor.w);
+        if (ditherType == 0u)
+        {
+            outCol += vec3((fract(sin(dot(uv, vec2(12.98980045318603515625, 78.233001708984375))) * 43758.546875) - 0.5) * ditherFactor.x);
+        }
+        else
+        {
+            if (ditherType == 1u)
+            {
+                vec2 param = uv;
+                float _1226 = TriangleNoise(param);
+                float _noise = _1226;
+                outCol += vec3(_noise * ditherFactor.x);
+            }
+            else
+            {
+                if (ditherType == 2u)
+                {
+                    vec2 param_1 = uv;
+                    float _1242 = TriangleNoise(param_1);
+                    vec2 param_2 = uv + vec2(0.13369999825954437255859375);
+                    float _1248 = TriangleNoise(param_2);
+                    vec2 param_3 = uv + vec2(0.3140999972820281982421875);
+                    float _1254 = TriangleNoise(param_3);
+                    vec3 noiseRGB = vec3(_1242, _1248, _1254);
+                    outCol += (noiseRGB * ditherFactor.x);
+                }
+            }
+        }
+    }
+}
+
+void PostProcessVignetteBlock(uint postProcessFlags, vec4 vignetteFactor, vec2 uv, vec3 inCol, inout vec3 outCol)
+{
+    outCol = inCol;
+    if ((postProcessFlags & 2u) == 2u)
+    {
+        vec2 uvVal = uv * (vec2(1.0) - uv.yx);
+        float vignette = ((uvVal.x * uvVal.y) * vignetteFactor.x) * 40.0;
+        vignette = clamp(pow(vignette, vignetteFactor.y), 0.0, 1.0);
+        outCol *= vignette;
+    }
+}
+
+vec3 LinearToSrgb(vec3 linear)
+{
+    vec3 high = (pow(linear, vec3(0.41600000858306884765625)) * 1.05499994754791259765625) - vec3(0.054999999701976776123046875);
+    vec3 low = linear * 12.9200000762939453125;
+    bvec3 cutoff = lessThan(linear, vec3(0.003130800090730190277099609375));
+    return mix(high, low, cutoff);
+}
+
+void PostProcessColorConversionBlock(uint postProcessFlags, vec4 colorConversionFactor, vec4 inCol, inout vec4 outCol)
+{
+    outCol = inCol;
+    if ((postProcessFlags & 8u) == 8u)
+    {
+        uint conversionFlags = uint(colorConversionFactor.w);
+        if ((conversionFlags & 2u) != 0u)
+        {
+            float _1279 = outCol.w;
+            vec4 _1280 = outCol;
+            vec3 _1282 = _1280.xyz * _1279;
+            outCol.x = _1282.x;
+            outCol.y = _1282.y;
+            outCol.z = _1282.z;
+        }
+        if ((conversionFlags & 1u) != 0u)
+        {
+            vec3 _1296 = LinearToSrgb(outCol.xyz);
+            outCol.x = _1296.x;
+            outCol.y = _1296.y;
+            outCol.z = _1296.z;
+        }
+    }
+}
+
+void InplacePostProcess(vec2 fragUv, inout vec4 color)
+{
+    uint param = _s0_b5.uPostProcessData.flags.x;
+    vec4 param_1 = _s0_b5.uPostProcessData.factors[6];
+    vec3 param_2 = color.xyz;
+    vec3 param_3;
+    PostProcessWhiteBalanceBlock(param, param_1, param_2, param_3);
+    color.x = param_3.x;
+    color.y = param_3.y;
+    color.z = param_3.z;
+    uint param_4 = _s0_b5.uPostProcessData.flags.x;
+    vec4 param_5 = _s0_b5.uPostProcessData.factors[7];
+    vec4 param_6 = _s0_b5.uPostProcessData.userFactors[0];
+    vec3 param_7 = color.xyz;
+    vec3 param_8;
+    PostProcessColorAdjustmentsBlock(param_4, param_5, param_6, param_7, param_8);
+    color.x = param_8.x;
+    color.y = param_8.y;
+    color.z = param_8.z;
+    uint param_9 = _s0_b5.uPostProcessData.flags.x;
+    vec4 param_10 = _s0_b5.uPostProcessData.factors[0];
+    vec3 param_11 = color.xyz;
+    vec3 param_12;
+    PostProcessTonemapBlock(param_9, param_10, param_11, param_12);
+    color.x = param_12.x;
+    color.y = param_12.y;
+    color.z = param_12.z;
+    float tickDelta = _s0_b5.uPostProcessData.renderTimings.y;
+    vec2 vecCoeffs = fragUv * tickDelta;
+    uint param_13 = _s0_b5.uPostProcessData.flags.x;
+    vec4 param_14 = _s0_b5.uPostProcessData.factors[2];
+    vec2 param_15 = vecCoeffs;
+    vec3 param_16 = color.xyz;
+    vec3 param_17;
+    PostProcessDitherBlock(param_13, param_14, param_15, param_16, param_17);
+    color.x = param_17.x;
+    color.y = param_17.y;
+    color.z = param_17.z;
+    uint param_18 = _s0_b5.uPostProcessData.flags.x;
+    vec4 param_19 = _s0_b5.uPostProcessData.factors[1];
+    vec2 param_20 = fragUv;
+    vec3 param_21 = color.xyz;
+    vec3 param_22;
+    PostProcessVignetteBlock(param_18, param_19, param_20, param_21, param_22);
+    color.x = param_22.x;
+    color.y = param_22.y;
+    color.z = param_22.z;
+    uint param_23 = _s0_b5.uPostProcessData.flags.x;
+    vec4 param_24 = _s0_b5.uPostProcessData.factors[3];
+    vec4 param_25 = color;
+    vec4 param_26;
+    PostProcessColorConversionBlock(param_23, param_24, param_25, param_26);
+    color = param_26;
+}
+
+vec2 OctWrap(vec2 v)
+{
+    return (vec2(1.0) - abs(v.yx)) * vec2((v.x >= 0.0) ? 1.0 : (-1.0), (v.y >= 0.0) ? 1.0 : (-1.0));
+}
+
+vec2 NormalOctEncode(vec3 normal)
+{
+    vec3 n = normal;
+    n /= vec3((abs(n.x) + abs(n.y)) + abs(n.z));
+    vec2 _314;
+    if (n.z >= 0.0)
+    {
+        _314 = n.xy;
+    }
+    else
+    {
+        vec2 param = n.xy;
+        _314 = OctWrap(param);
+    }
+    n.x = _314.x;
+    n.y = _314.y;
+    vec3 _329 = n;
+    vec2 _334 = (_329.xy * 0.5) + vec2(0.5);
+    n.x = _334.x;
+    n.y = _334.y;
+    return n.xy;
+}
+
+vec4 GetPackVelocityAndNormal(vec2 velocity, vec3 normal)
+{
+    vec3 param = normal;
+    return vec4(velocity, NormalOctEncode(param));
+}
+
+void main()
+{
+    uint param = inIndices;
+    uint cameraIdx = GetUnpackFlatIndicesCameraIdx(param);
+    vec2 clip = inUv;
+    vec4 far = _s0_b0.uCameras[cameraIdx].view * vec4(clip, 1.0, 1.0);
+    vec4 near = _s0_b0.uCameras[cameraIdx].view[2];
+    vec3 actualCameraPos = _s0_b0.uCameras[cameraIdx].viewInv[3].xyz;
+    float actualHeight = length(actualCameraPos);
+    float scaledHeight = 6371.0 + (actualHeight * 0.001000000047497451305389404296875);
+    vec3 viewPos = vec3(0.0, scaledHeight, 0.0);
+    uint param_1 = cameraIdx;
+    Ray ray = CreateRay(param_1);
+    bool isReflected = false;
+    vec3 right = _s0_b0.uCameras[cameraIdx].view[0].xyz;
+    vec3 up = _s0_b0.uCameras[cameraIdx].view[1].xyz;
+    vec3 forward = _s0_b0.uCameras[cameraIdx].view[2].xyz;
+    isReflected = dot(cross(right, up), forward) < 0.0;
+    vec3 _2633;
+    if (isReflected)
+    {
+        _2633 = -ray.dir;
+    }
+    else
+    {
+        _2633 = ray.dir;
+    }
+    ray.dir = _2633;
+    vec3 light_dir = normalize(GetSunPos());
+    ScatteringParams params = DefaultParameters();
+    vec3 param_2 = ray.dir;
+    vec3 param_3 = light_dir;
+    vec3 param_4 = vec3(viewPos.x, -viewPos.y, viewPos.z);
+    vec3 lum = GetValFromSkyLUT(param_2, param_3, param_4);
+    vec3 param_5 = ray.dir;
+    vec3 param_6 = light_dir;
+    vec3 sunLum = SunWithBloom(param_5, param_6);
+    sunLum = smoothstep(vec3(0.00200000009499490261077880859375), vec3(1.0), sunLum);
+    sunLum *= (GetSkySunTint() * GetSkySunOpacity());
+    vec3 param_7 = viewPos;
+    vec3 param_8 = ray.dir;
+    float param_9 = 6371.0;
+    float planetIntersect = RayIntersectSphere(param_7, param_8, param_9);
+    if (length(sunLum) > 0.0)
+    {
+        if (planetIntersect >= 0.0)
+        {
+            sunLum *= 0.0;
+        }
+        else
+        {
+            vec3 param_10 = viewPos;
+            vec3 param_11 = light_dir;
+            sunLum *= GetValFromTransmittanceLUT(param_10, param_11);
+        }
+    }
+    lum += sunLum;
+    vec3 param_12 = ray.o;
+    vec3 param_13 = ray.dir;
+    ScatteringLightSource param_14 = ScatteringLightSource(light_dir, vec3(40.0));
+    ScatteringParams param_15 = params;
+    vec3 param_16 = viewPos;
+    float param_17 = planetIntersect;
+    vec4 scene = RenderScene(param_12, param_13, param_14, param_15, param_16, param_17);
+    lum += scene.xyz;
+    outColor = vec4(lum * GetSkyEnvTint(), 1.0);
+    gl_FragDepth = 1.0;
+    vec2 param_18 = gl_FragCoord.xy;
+    vec2 param_19 = _s0_b1.uGeneralData.viewportSizeInvViewportSize.zw;
+    vec2 fragUv = GetFragCoordUv(param_18, param_19);
+    if (_2757)
+    {
+        vec2 param_20 = fragUv;
+        vec4 param_21 = outColor;
+        InplacePostProcess(param_20, param_21);
+        outColor = param_21;
+    }
+    vec2 resolution = _s0_b1.uGeneralData.viewportSizeInvViewportSize.xy;
+    vec4 currentClipSpacePos = vec4(((fragUv.x / resolution.x) * 2.0) - 1.0, (((resolution.y - fragUv.y) / resolution.y) * 2.0) - 1.0, 1.0, 1.0);
+    vec4 currentWorldSpaceDir = _s0_b0.uCameras[cameraIdx].viewProjInv * currentClipSpacePos;
+    currentWorldSpaceDir /= vec4(currentWorldSpaceDir.w);
+    vec4 prevClipSpacePos = _s0_b0.uCameras[cameraIdx].viewProjPrevFrame * currentWorldSpaceDir;
+    prevClipSpacePos /= vec4(prevClipSpacePos.w);
+    vec2 prevScreenSpacePos = vec2(((prevClipSpacePos.x + 1.0) * 0.5) * resolution.x, ((1.0 - prevClipSpacePos.y) * 0.5) * resolution.y);
+    vec2 velocity = (fragUv - prevScreenSpacePos) * vec2(1.0, -1.0);
+    vec2 param_22 = velocity;
+    vec3 param_23 = vec3(0.0);
+    outVelocityNormal = GetPackVelocityAndNormal(param_22, param_23);
+}
+

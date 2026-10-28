@@ -1,0 +1,56 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\lambda\\.ohos\\config\\default_LumeApp_5kAT0jnGAOHgqSEsSPbDRmxXegUURNOpzwM0UdQVrtA=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B23D5D67A82A27EB9799C3FD4D88B44B1793A356B6E42A3C91A49C8087EA8FB5B4A5A4167B4DCDD",
+          "profile": "C:\\Users\\lambda\\.ohos\\config\\default_LumeApp_5kAT0jnGAOHgqSEsSPbDRmxXegUURNOpzwM0UdQVrtA=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\lambda\\.ohos\\config\\default_LumeApp_5kAT0jnGAOHgqSEsSPbDRmxXegUURNOpzwM0UdQVrtA=.p12",
+          "storePassword": "0000001B6D52298A25DB582048D86136D654C7BB21871EC3660D8F36B1D31A65C0B8C08B5B8E2B94A63600"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.0.1(21)",
+        "compatibleSdkVersion": "6.0.1(21)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

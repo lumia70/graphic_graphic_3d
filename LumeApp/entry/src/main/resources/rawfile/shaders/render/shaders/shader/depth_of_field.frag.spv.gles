@@ -1,0 +1,86 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+struct DofConfig
+{
+    vec4 factors0;
+    vec4 factors1;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(std140) uniform s0_b4
+{
+    DofConfig uLocalData;
+} _s0_b4;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform highp sampler2D s0_b3;
+uniform highp sampler2D s0_b2;
+uniform highp sampler2D s0_b0;
+uniform highp sampler2D s0_b1;
+
+layout(location = 0) out vec4 outColor;
+layout(location = 0) in vec2 inUv;
+
+float LinearDepth(float depth, float near, float far)
+{
+    return (far * near) / (((near - far) * depth) + far);
+}
+
+mediump vec4 DepthOfField(vec2 texCoord, vec2 invTexSize, vec4 params1, vec4 params2)
+{
+    mediump float depth = texture(s0_b3, texCoord, 0.0).x;
+    float param = depth;
+    float param_1 = params2.z;
+    float param_2 = params2.w;
+    float linearDepth = LinearDepth(param, param_1, param_2);
+    float nearBlur = params2.x;
+    float farBlur = params2.y;
+    mediump vec4 farPlane0 = textureLod(s0_b2, texCoord, 0.0);
+    mediump vec4 farPlane = textureLod(s0_b2, texCoord, farBlur);
+    mediump vec4 focusPlane = textureLod(s0_b0, texCoord, 0.0);
+    mediump vec4 nearPlane = textureLod(s0_b1, texCoord, nearBlur);
+    mediump float farWeight = farPlane0.w;
+    mediump vec3 _105 = (farPlane.xyz * farWeight) + (focusPlane.xyz * (1.0 - farWeight));
+    mediump vec4 color;
+    color.x = _105.x;
+    color.y = _105.y;
+    color.z = _105.z;
+    mediump float nearWeight = nearPlane.w;
+    mediump vec4 _119 = color;
+    mediump vec3 _124 = (nearPlane.xyz * nearWeight) + (_119.xyz * (1.0 - nearWeight));
+    color.x = _124.x;
+    color.y = _124.y;
+    color.z = _124.z;
+    color.w = 1.0;
+    return color;
+}
+
+void main()
+{
+    vec2 param = inUv;
+    vec2 param_1 = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+    vec4 param_2 = _s0_b4.uLocalData.factors0;
+    vec4 param_3 = _s0_b4.uLocalData.factors1;
+    outColor = DepthOfField(param, param_1, param_2, param_3);
+}
+

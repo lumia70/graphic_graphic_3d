@@ -1,0 +1,343 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+struct AtmosphericConfig
+{
+    vec3 rayleighScatteringBase;
+    vec3 ozoneAbsorptionBase;
+    float mieScatteringBase;
+    float mieAbsorptionBase;
+    vec3 groundColor;
+    float skyViewBrightness;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(std140) uniform AerialPerspectiveBuffer
+{
+    vec4 sunDirElevation;
+    vec3 frustumA;
+    float maxDistance;
+    vec3 frustumB;
+    float worldScale;
+    vec3 frustumC;
+    float padding0;
+    vec3 frustumD;
+    float padding1;
+    vec3 cameraPosition;
+    float padding2;
+    vec3 rayleighScatteringBase;
+    float mieAbsorptionBase;
+    vec3 ozoneAbsorptionBase;
+    float mieScatteringBase;
+    mat4 shadowViewProj;
+} s0_b3;
+
+uniform sampler2D s0_b1;
+uniform sampler2D s0_b2;
+layout(binding = 11, rgba16f) uniform writeonly image2D s0_b0;
+uniform sampler2D s0_b4;
+
+vec2 RayIntersectSphere2D(vec3 start, vec3 dir, float radius)
+{
+    float a = dot(dir, dir);
+    float b = 2.0 * dot(dir, start);
+    float c = dot(start, start) - (radius * radius);
+    float d = (b * b) - ((4.0 * a) * c);
+    if (d < 0.0)
+    {
+        return vec2(100000.0, -100000.0);
+    }
+    return vec2(((-b) - sqrt(d)) / (2.0 * a), ((-b) + sqrt(d)) / (2.0 * a));
+}
+
+float RayIntersectSphere(vec3 ro, vec3 rd, float rad)
+{
+    float b = dot(ro, rd);
+    float c = dot(ro, ro) - (rad * rad);
+    if ((c > 0.0) && (b > 0.0))
+    {
+        return -1.0;
+    }
+    float discr = (b * b) - c;
+    if (discr < 0.0)
+    {
+        return -1.0;
+    }
+    if (discr > (b * b))
+    {
+        return (-b) + sqrt(discr);
+    }
+    return (-b) - sqrt(discr);
+}
+
+float GetMiePhase(float cosTheta)
+{
+    float num = 0.36000001430511474609375 * (1.0 + (cosTheta * cosTheta));
+    float denom = 2.6400001049041748046875 * pow(1.63999998569488525390625 - (1.60000002384185791015625 * cosTheta), 1.5);
+    return (0.119366206228733062744140625 * num) / denom;
+}
+
+float GetRayleighPhase(float cosTheta)
+{
+    return 0.0596831031143665313720703125 * (1.0 + (cosTheta * cosTheta));
+}
+
+void GetScatteringValues(vec3 pos, AtmosphericConfig atmosphericConfig, inout vec3 rayleighScattering, inout float mieScattering, out vec3 extinction)
+{
+    float altitudeKM = length(pos) - 6371.0;
+    float rayleighDensity = exp((-altitudeKM) / 8.0);
+    float mieDensity = exp((-altitudeKM) / 1.2000000476837158203125);
+    rayleighScattering = (atmosphericConfig.rayleighScatteringBase * 0.001000000047497451305389404296875) * rayleighDensity;
+    float rayleighAbsorption = 0.0 * rayleighDensity;
+    mieScattering = (atmosphericConfig.mieScatteringBase * 0.001000000047497451305389404296875) * mieDensity;
+    float mieAbsorption = (atmosphericConfig.mieAbsorptionBase * 0.001000000047497451305389404296875) * mieDensity;
+    vec3 ozoneAbsorption = (atmosphericConfig.ozoneAbsorptionBase * 0.001000000047497451305389404296875) * max(0.0, 1.0 - (abs(altitudeKM - 25.0) / 15.0));
+    extinction = (((rayleighScattering + vec3(rayleighAbsorption)) + vec3(mieScattering)) + vec3(mieAbsorption)) + ozoneAbsorption;
+}
+
+vec2 GetTransmittanceTextureUvFromRMu(float r, float mu)
+{
+    float h = 1133.2254638671875;
+    float rho = sqrt(max(0.0, (r * r) - 40589640.0));
+    float dMin = 6471.0 - r;
+    float dMax = rho + h;
+    float discriminant = ((r * r) * ((mu * mu) - 1.0)) + 41873840.0;
+    float d = max(0.0, ((-r) * mu) + sqrt(max(0.0, discriminant)));
+    float xMu = clamp((d - dMin) / (dMax - dMin), 0.0, 1.0);
+    float xR = clamp(rho / h, 0.0, 1.0);
+    return vec2(xMu, xR);
+}
+
+vec3 GetValFromTransmittanceLUT(ivec2 bufferRes, vec3 pos, vec3 sunDir)
+{
+    float height = length(pos);
+    vec3 up = pos / vec3(height);
+    float sunCosZenithAngle = dot(sunDir, up);
+    bool _333 = sunCosZenithAngle < 0.0;
+    bool _343;
+    if (_333)
+    {
+        vec3 param = pos;
+        vec3 param_1 = sunDir;
+        float param_2 = 6371.0;
+        _343 = RayIntersectSphere(param, param_1, param_2) > 0.0;
+    }
+    else
+    {
+        _343 = _333;
+    }
+    if (_343)
+    {
+        return vec3(0.0);
+    }
+    float param_3 = height;
+    float param_4 = sunCosZenithAngle;
+    vec2 uv = GetTransmittanceTextureUvFromRMu(param_3, param_4);
+    return textureLod(s0_b1, uv, 0.0).xyz;
+}
+
+vec3 GetValFromMultipleScatteringLUT(ivec2 bufferRes, vec3 pos, vec3 sunDir)
+{
+    float height = length(pos);
+    vec3 up = pos / vec3(height);
+    float sunCosZenithAngle = dot(sunDir, up);
+    float normalizedHeight = clamp((height - 6371.0) / 100.0, 0.0, 1.0);
+    vec2 uv;
+    uv.x = clamp(0.5 + (0.5 * sunCosZenithAngle), 0.0, 1.0);
+    uv.y = normalizedHeight;
+    return textureLod(s0_b2, uv, 0.0).xyz;
+}
+
+void main()
+{
+    ivec2 atlasDim = imageSize(s0_b0);
+    AtmosphericConfig atmosphericConfig;
+    atmosphericConfig.rayleighScatteringBase = s0_b3.rayleighScatteringBase;
+    atmosphericConfig.ozoneAbsorptionBase = s0_b3.ozoneAbsorptionBase;
+    atmosphericConfig.mieAbsorptionBase = s0_b3.mieAbsorptionBase;
+    atmosphericConfig.mieScatteringBase = s0_b3.mieScatteringBase;
+    int TILE_SIZE_X = atlasDim.x / 8;
+    int TILE_SIZE_Y = atlasDim.y / 4;
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    bool _456 = coord.x >= atlasDim.x;
+    bool _465;
+    if (!_456)
+    {
+        _465 = coord.y >= atlasDim.y;
+    }
+    else
+    {
+        _465 = _456;
+    }
+    if (_465)
+    {
+        return;
+    }
+    int tileX = coord.x / TILE_SIZE_X;
+    int tileY = coord.y / TILE_SIZE_Y;
+    int localX = coord.x % TILE_SIZE_X;
+    int localY = coord.y % TILE_SIZE_Y;
+    float u = (float(localX) + 0.5) / float(TILE_SIZE_X);
+    float v = (float(localY) + 0.5) / float(TILE_SIZE_Y);
+    vec3 actualCameraPos = s0_b3.cameraPosition;
+    float actualHeight = length(actualCameraPos);
+    float scaledHeight = 6371.0 + actualHeight;
+    vec3 viewPos = vec3(0.0, scaledHeight, 0.0);
+    vec3 rayDir = normalize(mix(mix(s0_b3.frustumA, s0_b3.frustumB, vec3(u)), mix(s0_b3.frustumC, s0_b3.frustumD, vec3(u)), vec3(v)));
+    vec3 sunDir = s0_b3.sunDirElevation.xyz;
+    vec3 param = viewPos;
+    vec3 param_1 = rayDir;
+    float param_2 = 6471.0;
+    vec2 atmos_intercept = RayIntersectSphere2D(param, param_1, param_2);
+    vec3 param_3 = viewPos;
+    vec3 param_4 = rayDir;
+    float param_5 = 6371.0;
+    float terra_intercept = RayIntersectSphere(param_3, param_4, param_5);
+    float mindist = 0.0;
+    float maxdist = atmos_intercept.y;
+    if (terra_intercept > 0.0)
+    {
+        maxdist = terra_intercept;
+    }
+    bool _567 = length(viewPos) > 6471.0;
+    bool _573;
+    if (_567)
+    {
+        _573 = atmos_intercept.x < 0.0;
+    }
+    else
+    {
+        _573 = _567;
+    }
+    if (_573)
+    {
+        imageStore(s0_b0, coord, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+    vec3 pos = viewPos + (rayDir * mindist);
+    float cosTheta = dot(rayDir, sunDir);
+    float param_6 = cosTheta;
+    float miePhaseValue = GetMiePhase(param_6);
+    float param_7 = -cosTheta;
+    float rayleighPhaseValue = GetRayleighPhase(param_7);
+    ivec2 transmittanceDim = textureSize(s0_b1, 0);
+    ivec2 multipleScatteringDim = textureSize(s0_b2, 0);
+    float sliceDepth = (0.001000000047497451305389404296875 * s0_b3.maxDistance) / 32.0;
+    vec3 sumSigmaT = vec3(0.0);
+    vec3 inScatter = vec3(0.0);
+    float rand = fract(sin(dot(vec2(u, v), vec2(25.9796009063720703125, 156.46600341796875))) * 43758.546875);
+    float tBeg = 0.0;
+    float halfSliceDepth = 0.5 * sliceDepth;
+    float tEnd = min(halfSliceDepth, maxdist - mindist);
+    vec3 param_9;
+    float param_10;
+    vec3 param_11;
+    for (int z = 0; z < 32; z++)
+    {
+        float segmentLength = tEnd - tBeg;
+        if (segmentLength > 0.0)
+        {
+            for (int i = 0; uint(i) < 1u; i++)
+            {
+                float newT = tBeg + (((float(i) + 0.300000011920928955078125) / 1.0) * segmentLength);
+                float dt = segmentLength / 1.0;
+                float midT = mix(newT, newT + dt, rand);
+                vec3 newPos = pos + (rayDir * newT);
+                vec3 rayleighScattering = vec3(0.0);
+                vec3 extinction = vec3(0.0);
+                float mieScattering = 0.0;
+                vec3 param_8 = newPos;
+                GetScatteringValues(param_8, atmosphericConfig, param_9, param_10, param_11);
+                rayleighScattering = param_9;
+                mieScattering = param_10;
+                extinction = param_11;
+                extinction = max(extinction, vec3(9.9999999747524270787835121154785e-07));
+                vec3 sampleTransmittance = exp(extinction * (-dt));
+                bool inShadow = false;
+                vec3 param_12 = newPos;
+                vec3 param_13 = -sunDir;
+                float param_14 = 6371.0;
+                if (RayIntersectSphere(param_12, param_13, param_14) > 0.0)
+                {
+                    vec3 shadowPos = s0_b3.cameraPosition + ((rayDir * midT) / vec3(0.001000000047497451305389404296875 * s0_b3.worldScale));
+                    vec4 shadowClip = s0_b3.shadowViewProj * vec4(shadowPos, 1.0);
+                    vec2 shadowNDC = shadowClip.xy / vec2(shadowClip.w);
+                    vec2 shadowUV = vec2(0.5) + (vec2(0.5) * shadowNDC);
+                    bool _764 = shadowUV.x >= 0.0;
+                    bool _770;
+                    if (_764)
+                    {
+                        _770 = shadowUV.x <= 1.0;
+                    }
+                    else
+                    {
+                        _770 = _764;
+                    }
+                    bool _776;
+                    if (_770)
+                    {
+                        _776 = shadowUV.y >= 0.0;
+                    }
+                    else
+                    {
+                        _776 = _770;
+                    }
+                    bool _782;
+                    if (_776)
+                    {
+                        _782 = shadowUV.y <= 1.0;
+                    }
+                    else
+                    {
+                        _782 = _776;
+                    }
+                    if (_782)
+                    {
+                        float rayZ = shadowClip.z / shadowClip.w;
+                        float smZ = textureLod(s0_b4, shadowUV, 0.0).x;
+                        inShadow = rayZ > smZ;
+                    }
+                    else
+                    {
+                        inShadow = false;
+                    }
+                }
+                else
+                {
+                    inShadow = true;
+                }
+                vec3 sunTransmittance = vec3(0.0);
+                if (!inShadow)
+                {
+                    ivec2 param_15 = transmittanceDim;
+                    vec3 param_16 = newPos;
+                    vec3 param_17 = sunDir;
+                    sunTransmittance = GetValFromTransmittanceLUT(param_15, param_16, param_17);
+                }
+                ivec2 param_18 = multipleScatteringDim;
+                vec3 param_19 = newPos;
+                vec3 param_20 = sunDir;
+                vec3 psiMS = GetValFromMultipleScatteringLUT(param_18, param_19, param_20);
+                vec3 rayleighInScattering = rayleighScattering * ((sunTransmittance * rayleighPhaseValue) + psiMS);
+                vec3 mieInScattering = ((sunTransmittance * miePhaseValue) + psiMS) * mieScattering;
+                vec3 inScatSample = rayleighInScattering + mieInScattering;
+                vec3 scatteringIntegral = (inScatSample - (inScatSample * sampleTransmittance)) / extinction;
+                inScatter += (scatteringIntegral * exp(-sumSigmaT));
+                sumSigmaT += (extinction * dt);
+            }
+        }
+        float transmittanceLum = dot(exp(-sumSigmaT), vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+        int dstX = localX + ((z % 8) * TILE_SIZE_X);
+        int dstY = localY + ((z / 8) * TILE_SIZE_Y);
+        imageStore(s0_b0, ivec2(dstX, dstY), vec4(inScatter, transmittanceLum));
+        tBeg = tEnd;
+        tEnd = min(tEnd + sliceDepth, maxdist - mindist);
+    }
+}
+

@@ -1,0 +1,21 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    float moment1 = gl_FragCoord.z;
+    float moment2 = moment1 * moment1;
+    float dx = dFdx(moment1);
+    float dy = dFdy(moment1);
+    moment2 += (0.25 * ((dx * dx) + (dy * dy)));
+    outColor = vec4(moment1, moment2, 0.0, 0.0);
+}
+

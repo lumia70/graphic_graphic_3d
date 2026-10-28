@@ -1,0 +1,102 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct DefaultMaterialEnvironmentStruct
+{
+    vec4 indirectSpecularColorFactor;
+    vec4 indirectDiffuseColorFactor;
+    vec4 envMapColorFactor;
+    vec4 values;
+    vec4 blendFactor;
+    mat4 envRotation;
+    uvec4 indices;
+    vec4 shIndirectCoefficients[9];
+    uvec4 multiEnvIndices;
+    vec4 packedSun;
+    vec4 packedPhases;
+    vec4 groundColor;
+    vec4 aerialPerspectiveParams;
+    vec4 skySunParams;
+    vec4 skySunColor;
+    vec4 skyMoonNightParams;
+    vec4 skyMoonColor;
+    vec4 padding[4];
+};
+
+struct EnvPushConstantStruct
+{
+    uvec4 indices;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(std140) uniform s0_b0
+{
+    DefaultMaterialEnvironmentStruct uEnvironmentDataArray[8];
+} _s0_b0;
+
+struct uPostProcessPushConstant
+{
+    EnvPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform highp samplerCube s0_b1;
+uniform highp samplerCube s0_b2;
+
+layout(location = 0) in vec3 inCubeUv;
+layout(location = 0) out vec4 outColor;
+
+vec4 GetCombinedCubemap()
+{
+    DefaultMaterialEnvironmentStruct envData;
+    envData.indirectSpecularColorFactor = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].indirectSpecularColorFactor;
+    envData.indirectDiffuseColorFactor = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].indirectDiffuseColorFactor;
+    envData.envMapColorFactor = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].envMapColorFactor;
+    envData.values = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].values;
+    envData.blendFactor = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].blendFactor;
+    envData.envRotation = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].envRotation;
+    envData.indices = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].indices;
+    envData.shIndirectCoefficients[0] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[0];
+    envData.shIndirectCoefficients[1] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[1];
+    envData.shIndirectCoefficients[2] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[2];
+    envData.shIndirectCoefficients[3] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[3];
+    envData.shIndirectCoefficients[4] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[4];
+    envData.shIndirectCoefficients[5] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[5];
+    envData.shIndirectCoefficients[6] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[6];
+    envData.shIndirectCoefficients[7] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[7];
+    envData.shIndirectCoefficients[8] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].shIndirectCoefficients[8];
+    envData.multiEnvIndices = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].multiEnvIndices;
+    envData.packedSun = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].packedSun;
+    envData.packedPhases = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].packedPhases;
+    envData.groundColor = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].groundColor;
+    envData.aerialPerspectiveParams = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].aerialPerspectiveParams;
+    envData.skySunParams = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].skySunParams;
+    envData.skySunColor = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].skySunColor;
+    envData.skyMoonNightParams = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].skyMoonNightParams;
+    envData.skyMoonColor = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].skyMoonColor;
+    envData.padding[0] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].padding[0];
+    envData.padding[1] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].padding[1];
+    envData.padding[2] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].padding[2];
+    envData.padding[3] = _s0_b0.uEnvironmentDataArray[CORE_PC_0.uPc.indices.x].padding[3];
+    uvec2 envIdx = min(envData.multiEnvIndices.yz, uvec2(7u));
+    float lodLevel = float(CORE_PC_0.uPc.indices.y);
+    vec3 env0 = textureLod(s0_b1, mat3(_s0_b0.uEnvironmentDataArray[envIdx.x].envRotation[0].xyz, _s0_b0.uEnvironmentDataArray[envIdx.x].envRotation[1].xyz, _s0_b0.uEnvironmentDataArray[envIdx.x].envRotation[2].xyz) * inCubeUv, lodLevel).xyz;
+    vec3 env1 = textureLod(s0_b2, mat3(_s0_b0.uEnvironmentDataArray[envIdx.y].envRotation[0].xyz, _s0_b0.uEnvironmentDataArray[envIdx.y].envRotation[1].xyz, _s0_b0.uEnvironmentDataArray[envIdx.y].envRotation[2].xyz) * inCubeUv, lodLevel).xyz;
+    float blendVal = envData.blendFactor.x;
+    vec3 finalColor = mix(env0, env1, vec3(blendVal));
+    return vec4(finalColor, 1.0);
+}
+
+void main()
+{
+    outColor = GetCombinedCubemap();
+}
+

@@ -1,0 +1,307 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct AtmosphericConfig
+{
+    vec3 rayleighScatteringBase;
+    vec3 ozoneAbsorptionBase;
+    float mieScatteringBase;
+    float mieAbsorptionBase;
+    vec3 groundColor;
+    float skyViewBrightness;
+};
+
+struct PushConstantLocalStruct
+{
+    vec4 rayleighScatteringBase;
+    vec4 ozoneAbsorptionBase;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPostProcessPushConstant
+{
+    PushConstantLocalStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform sampler2D s0_b1;
+layout(binding = 11, rgba16f) uniform writeonly image2D s0_b0;
+
+shared uvec3 s_workgroupLumTotal;
+shared uvec3 s_workgroupFmsTotal;
+
+float Safeacos(float x)
+{
+    return acos(clamp(x, -1.0, 1.0));
+}
+
+vec3 GetSphericalDir(float theta, float phi)
+{
+    float cosPhi = cos(phi);
+    float sinPhi = sin(phi);
+    float cosTheta = cos(theta);
+    float sinTheta = sin(theta);
+    return vec3(sinPhi * sinTheta, cosPhi, sinPhi * cosTheta);
+}
+
+float RayIntersectSphere(vec3 ro, vec3 rd, float rad)
+{
+    float b = dot(ro, rd);
+    float c = dot(ro, ro) - (rad * rad);
+    if ((c > 0.0) && (b > 0.0))
+    {
+        return -1.0;
+    }
+    float discr = (b * b) - c;
+    if (discr < 0.0)
+    {
+        return -1.0;
+    }
+    if (discr > (b * b))
+    {
+        return (-b) + sqrt(discr);
+    }
+    return (-b) - sqrt(discr);
+}
+
+float GetMiePhase(float cosTheta)
+{
+    float num = 0.36000001430511474609375 * (1.0 + (cosTheta * cosTheta));
+    float denom = 2.6400001049041748046875 * pow(1.63999998569488525390625 - (1.60000002384185791015625 * cosTheta), 1.5);
+    return (0.119366206228733062744140625 * num) / denom;
+}
+
+float GetRayleighPhase(float cosTheta)
+{
+    return 0.0596831031143665313720703125 * (1.0 + (cosTheta * cosTheta));
+}
+
+void GetScatteringValues(vec3 pos, AtmosphericConfig atmosphericConfig, inout vec3 rayleighScattering, inout float mieScattering, out vec3 extinction)
+{
+    float altitudeKM = length(pos) - 6371.0;
+    float rayleighDensity = exp((-altitudeKM) / 8.0);
+    float mieDensity = exp((-altitudeKM) / 1.2000000476837158203125);
+    rayleighScattering = (atmosphericConfig.rayleighScatteringBase * 0.001000000047497451305389404296875) * rayleighDensity;
+    float rayleighAbsorption = 0.0 * rayleighDensity;
+    mieScattering = (atmosphericConfig.mieScatteringBase * 0.001000000047497451305389404296875) * mieDensity;
+    float mieAbsorption = (atmosphericConfig.mieAbsorptionBase * 0.001000000047497451305389404296875) * mieDensity;
+    vec3 ozoneAbsorption = (atmosphericConfig.ozoneAbsorptionBase * 0.001000000047497451305389404296875) * max(0.0, 1.0 - (abs(altitudeKM - 25.0) / 15.0));
+    extinction = (((rayleighScattering + vec3(rayleighAbsorption)) + vec3(mieScattering)) + vec3(mieAbsorption)) + ozoneAbsorption;
+}
+
+vec2 GetTransmittanceTextureUvFromRMu(float r, float mu)
+{
+    float h = 1133.2254638671875;
+    float rho = sqrt(max(0.0, (r * r) - 40589640.0));
+    float dMin = 6471.0 - r;
+    float dMax = rho + h;
+    float discriminant = ((r * r) * ((mu * mu) - 1.0)) + 41873840.0;
+    float d = max(0.0, ((-r) * mu) + sqrt(max(0.0, discriminant)));
+    float xMu = clamp((d - dMin) / (dMax - dMin), 0.0, 1.0);
+    float xR = clamp(rho / h, 0.0, 1.0);
+    return vec2(xMu, xR);
+}
+
+vec3 GetValFromTransmittanceLUT(ivec2 bufferRes, vec3 pos, vec3 sunDir)
+{
+    float height = length(pos);
+    vec3 up = pos / vec3(height);
+    float sunCosZenithAngle = dot(sunDir, up);
+    float param = height;
+    float param_1 = sunCosZenithAngle;
+    vec2 uv = GetTransmittanceTextureUvFromRMu(param, param_1);
+    return textureLod(s0_b1, uv, 0.0).xyz;
+}
+
+void GetMulScattValues(vec3 pos, vec3 sunDir, inout vec3 currentThreadLum, inout vec3 currentThreadFms, int totalSamples, int numThreadsInWorkGroup, int localIndex, AtmosphericConfig atmosphericConfig)
+{
+    ivec2 transmittanceDim = textureSize(s0_b1, 0);
+    vec3 param_11;
+    float param_12;
+    vec3 param_13;
+    for (int k = localIndex; k < totalSamples; k += numThreadsInWorkGroup)
+    {
+        int i = k / 8;
+        int j = k % 8;
+        float theta = (3.1415927410125732421875 * (float(i) + 0.5)) / 8.0;
+        float phi = Safeacos(1.0 - ((2.0 * (float(j) + 0.5)) / 8.0));
+        float param = theta;
+        float param_1 = phi;
+        vec3 rayDir = GetSphericalDir(param, param_1);
+        vec3 param_2 = pos;
+        vec3 param_3 = rayDir;
+        float param_4 = 6471.0;
+        float atmoDist = RayIntersectSphere(param_2, param_3, param_4);
+        vec3 param_5 = pos;
+        vec3 param_6 = rayDir;
+        float param_7 = 6371.0;
+        float groundDist = RayIntersectSphere(param_5, param_6, param_7);
+        float tMax = atmoDist;
+        if (groundDist > 0.0)
+        {
+            tMax = groundDist;
+        }
+        float cosTheta = dot(rayDir, sunDir);
+        float param_8 = cosTheta;
+        float miePhaseValue = GetMiePhase(param_8);
+        float param_9 = -cosTheta;
+        float rayleighPhaseValue = GetRayleighPhase(param_9);
+        vec3 lum = vec3(0.0);
+        vec3 lumFactor = vec3(0.0);
+        vec3 transmittance = vec3(1.0);
+        float t = 0.0;
+        for (uint stepI = 0u; stepI < 100u; stepI++)
+        {
+            float newT = ((float(stepI) + 0.300000011920928955078125) / 100.0) * tMax;
+            float dt = newT - t;
+            t = newT;
+            vec3 newPos = pos + (rayDir * t);
+            vec3 rayleighScattering = vec3(0.0);
+            vec3 extinction = vec3(0.0);
+            vec3 param_10 = newPos;
+            GetScatteringValues(param_10, atmosphericConfig, param_11, param_12, param_13);
+            rayleighScattering = param_11;
+            float mieScattering = param_12;
+            extinction = param_13;
+            extinction = max(extinction, vec3(9.9999999747524270787835121154785e-07));
+            vec3 sampleTransmittance = exp(extinction * (-dt));
+            vec3 scatteringNoPhase = rayleighScattering + vec3(mieScattering);
+            vec3 scatteringF = (scatteringNoPhase - (scatteringNoPhase * sampleTransmittance)) / extinction;
+            lumFactor += (transmittance * scatteringF);
+            ivec2 param_14 = transmittanceDim;
+            vec3 param_15 = newPos;
+            vec3 param_16 = sunDir;
+            vec3 sunTransmittance = GetValFromTransmittanceLUT(param_14, param_15, param_16);
+            vec3 rayleighInScattering = rayleighScattering * rayleighPhaseValue;
+            float mieInScattering = mieScattering * miePhaseValue;
+            vec3 inScattering = (rayleighInScattering + vec3(mieInScattering)) * sunTransmittance;
+            vec3 scatteringIntegral = (inScattering - (inScattering * sampleTransmittance)) / extinction;
+            lum += (scatteringIntegral * transmittance);
+            transmittance *= sampleTransmittance;
+        }
+        if (groundDist > 0.0)
+        {
+            vec3 hitPos = pos + (rayDir * groundDist);
+            hitPos = normalize(hitPos) * 6371.0;
+            float blendFactor = max(0.0, sunDir.y);
+            ivec2 param_17 = transmittanceDim;
+            vec3 param_18 = hitPos;
+            vec3 param_19 = sunDir;
+            lum += (((transmittance * blendFactor) * vec3(0.300000011920928955078125)) * GetValFromTransmittanceLUT(param_17, param_18, param_19));
+        }
+        currentThreadFms += lumFactor;
+        currentThreadLum += lum;
+    }
+}
+
+uint FloatToScaledUint(float value)
+{
+    return uint(clamp(value * 16777216.0, 0.0, 2147483648.0));
+}
+
+uvec3 Vec3ToScaledUvec3(vec3 value)
+{
+    float param = value.x;
+    float param_1 = value.y;
+    float param_2 = value.z;
+    return uvec3(FloatToScaledUint(param), FloatToScaledUint(param_1), FloatToScaledUint(param_2));
+}
+
+float ScaledUintToFloat(uint value)
+{
+    return float(value) * 5.9604644775390625e-08;
+}
+
+vec3 ScaledUvec3ToVec3(uvec3 value)
+{
+    uint param = value.x;
+    uint param_1 = value.y;
+    uint param_2 = value.z;
+    return vec3(ScaledUintToFloat(param), ScaledUintToFloat(param_1), ScaledUintToFloat(param_2));
+}
+
+void main()
+{
+    ivec2 uv = ivec2(gl_WorkGroupID.xy);
+    ivec2 imageDim = imageSize(s0_b0);
+    AtmosphericConfig atmosphericConfig;
+    atmosphericConfig.rayleighScatteringBase = CORE_PC_0.uPc.rayleighScatteringBase.xyz;
+    atmosphericConfig.mieAbsorptionBase = CORE_PC_0.uPc.rayleighScatteringBase.w;
+    atmosphericConfig.ozoneAbsorptionBase = CORE_PC_0.uPc.ozoneAbsorptionBase.xyz;
+    atmosphericConfig.mieScatteringBase = CORE_PC_0.uPc.ozoneAbsorptionBase.w;
+    if (any(greaterThanEqual(uv, imageDim)))
+    {
+        return;
+    }
+    bool _678 = gl_LocalInvocationID.x == 0u;
+    bool _684;
+    if (_678)
+    {
+        _684 = gl_LocalInvocationID.y == 0u;
+    }
+    else
+    {
+        _684 = _678;
+    }
+    if (_684)
+    {
+        s_workgroupLumTotal = uvec3(0u);
+        s_workgroupFmsTotal = uvec3(0u);
+    }
+    float u = (float(uv.x) + 0.5) / float(imageDim.x);
+    float v = (float(uv.y) + 0.5) / float(imageDim.y);
+    float sunCosTheta = (2.0 * u) - 1.0;
+    float sunTheta = Safeacos(sunCosTheta);
+    float height = mix(6371.0009765625, 6471.0, v);
+    vec3 pos = vec3(0.0, height, 0.0);
+    vec3 sunDir = normalize(vec3(0.0, sunCosTheta, -sin(sunTheta)));
+    int localIndex = int(gl_LocalInvocationIndex);
+    vec3 currentThreadLum = vec3(0.0);
+    vec3 currentThreadFms = vec3(0.0);
+    vec3 param = pos;
+    vec3 param_1 = sunDir;
+    vec3 param_2 = currentThreadLum;
+    vec3 param_3 = currentThreadFms;
+    GetMulScattValues(param, param_1, param_2, param_3, 64, 64, localIndex, atmosphericConfig);
+    currentThreadLum = param_2;
+    currentThreadFms = param_3;
+    vec3 param_4 = currentThreadFms;
+    uvec3 currentThreadFmsUint = Vec3ToScaledUvec3(param_4);
+    vec3 param_5 = currentThreadLum;
+    uvec3 currentThreadLumUint = Vec3ToScaledUvec3(param_5);
+    uint _762 = atomicAdd(s_workgroupFmsTotal.x, currentThreadFmsUint.x);
+    uint _766 = atomicAdd(s_workgroupFmsTotal.y, currentThreadFmsUint.y);
+    uint _770 = atomicAdd(s_workgroupFmsTotal.z, currentThreadFmsUint.z);
+    uint _774 = atomicAdd(s_workgroupLumTotal.x, currentThreadLumUint.x);
+    uint _778 = atomicAdd(s_workgroupLumTotal.y, currentThreadLumUint.y);
+    uint _782 = atomicAdd(s_workgroupLumTotal.z, currentThreadLumUint.z);
+    barrier();
+    bool _786 = gl_LocalInvocationID.x == 0u;
+    bool _792;
+    if (_786)
+    {
+        _792 = gl_LocalInvocationID.y == 0u;
+    }
+    else
+    {
+        _792 = _786;
+    }
+    if (_792)
+    {
+        float invSamples = 0.015625;
+        uvec3 param_6 = s_workgroupLumTotal;
+        vec3 lumResult = ScaledUvec3ToVec3(param_6) * invSamples;
+        uvec3 param_7 = s_workgroupFmsTotal;
+        vec3 f_msResult = ScaledUvec3ToVec3(param_7) * invSamples;
+        vec3 psi = lumResult / max(vec3(1.0) - f_msResult, vec3(9.9999999747524270787835121154785e-07));
+        imageStore(s0_b0, uv, vec4(psi, 1.0));
+    }
+}
+

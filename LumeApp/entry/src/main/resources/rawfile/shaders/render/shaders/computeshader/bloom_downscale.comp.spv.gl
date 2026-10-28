@@ -1,0 +1,134 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+const uint _692 = (2u & CORE_POST_PROCESS_FLAGS);
+const bool _693 = (_692 == 2u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+layout(binding = 11, rgba16f) uniform writeonly image2D s0_b0;
+uniform sampler2D s0_b1_s0_b2;
+
+vec3 BloomDownscale9(vec2 uv, vec2 invTexSize, sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec3 color = textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(-invTexSize.x, invTexSize.y), 0.0).xyz * 0.0625;
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, invTexSize.y), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + invTexSize, 0.0).xyz * 0.0625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(-invTexSize.x, 0.0), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).xyz * 0.25);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(invTexSize.x, 0.0), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv - invTexSize, 0.0).xyz * 0.0625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, -invTexSize.y), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(invTexSize.x, -invTexSize.y), 0.0).xyz * 0.0625);
+    return color;
+}
+
+vec3 BloomDownscale(vec2 uv, vec2 invTexSize, sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec2 ts = invTexSize;
+    vec3 color = textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x - ts.x, uv.y - ts.y), 0.0).xyz * 0.03125;
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x, uv.y - ts.y), 0.0).xyz * 0.0625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x + ts.x, uv.y - ts.y), 0.0).xyz * 0.03125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x - ts.x, uv.y), 0.0).xyz * 0.0625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x, uv.y), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x + ts.x, uv.y), 0.0).xyz * 0.0625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x - ts.x, uv.y + ts.y), 0.0).xyz * 0.03125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x, uv.y + ts.y), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x + ts.x, uv.y + ts.y), 0.0).xyz * 0.03125);
+    vec2 ths = ts * 0.5;
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x - ths.x, uv.y - ths.y), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x + ths.x, uv.y - ths.y), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x - ths.x, uv.y + ths.y), 0.0).xyz * 0.125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x + ths.x, uv.y + ths.y), 0.0).xyz * 0.125);
+    return color;
+}
+
+vec3 BloomDownScaleHorizontal(vec2 uv, vec2 invTexSize, sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec3 color = textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2((-invTexSize.x) * 3.0, 0.0), 0.0).xyz * 0.0500000007450580596923828125;
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2((-invTexSize.x) * 2.0, 0.0), 0.0).xyz * 0.100000001490116119384765625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(-invTexSize.x, 0.0), 0.0).xyz * 0.1500000059604644775390625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, -invTexSize.y), 0.0).xyz * 0.0500000007450580596923828125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).xyz * 0.300000011920928955078125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, invTexSize.y), 0.0).xyz * 0.0500000007450580596923828125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(invTexSize.x, 0.0), 0.0).xyz * 0.1500000059604644775390625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(invTexSize.x * 2.0, 0.0), 0.0).xyz * 0.100000001490116119384765625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(invTexSize.x * 3.0, 0.0), 0.0).xyz * 0.0500000007450580596923828125);
+    return color;
+}
+
+vec3 BloomDownScaleVertical(vec2 uv, vec2 invTexSize, sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec3 color = textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, (-invTexSize.y) * 3.0), 0.0).xyz * 0.0500000007450580596923828125;
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, (-invTexSize.y) * 2.0), 0.0).xyz * 0.100000001490116119384765625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, -invTexSize.y), 0.0).xyz * 0.1500000059604644775390625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(-invTexSize.x, 0.0), 0.0).xyz * 0.0500000007450580596923828125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).xyz * 0.300000011920928955078125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(invTexSize.x, 0.0), 0.0).xyz * 0.0500000007450580596923828125);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, invTexSize.y), 0.0).xyz * 0.1500000059604644775390625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, invTexSize.y * 2.0), 0.0).xyz * 0.100000001490116119384765625);
+    color += (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(0.0, invTexSize.y * 3.0), 0.0).xyz * 0.0500000007450580596923828125);
+    return color;
+}
+
+void main()
+{
+    vec2 uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) * CORE_PC_0.uPc.viewportSizeInvSize.zw;
+    vec3 color = vec3(0.0);
+    if (CORE_PC_0.uPc.factor.x == 0.0)
+    {
+        if (_693)
+        {
+            vec2 param = uv;
+            vec2 param_1 = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+            color = BloomDownscale9(param, param_1, s0_b1_s0_b2);
+        }
+        else
+        {
+            vec2 param_2 = uv;
+            vec2 param_3 = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+            color = BloomDownscale(param_2, param_3, s0_b1_s0_b2);
+        }
+    }
+    else
+    {
+        if (CORE_PC_0.uPc.factor.x == 1.0)
+        {
+            vec2 param_4 = uv;
+            vec2 param_5 = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+            color = BloomDownScaleHorizontal(param_4, param_5, s0_b1_s0_b2);
+        }
+        else
+        {
+            if (CORE_PC_0.uPc.factor.x == 2.0)
+            {
+                vec2 param_6 = uv;
+                vec2 param_7 = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+                color = BloomDownScaleVertical(param_6, param_7, s0_b1_s0_b2);
+            }
+        }
+    }
+    imageStore(s0_b0, ivec2(gl_GlobalInvocationID.xy), vec4(min(color, vec3(64512.0)), 1.0));
+}
+

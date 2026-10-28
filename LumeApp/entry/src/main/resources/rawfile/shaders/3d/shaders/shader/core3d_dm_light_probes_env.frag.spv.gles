@@ -1,0 +1,423 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct FogLayer
+{
+    float density;
+    float fallOff;
+    float offset;
+};
+
+uniform float CORE_FLIP_NDC ;
+
+struct DefaultMaterialFogStruct
+{
+    uvec4 indices;
+    vec4 firstLayer;
+    vec4 secondLayer;
+    vec4 baseFactors;
+    vec4 inscatteringColor;
+    vec4 envMapFactor;
+    vec4 additionalFactor;
+};
+
+struct DefaultMaterialEnvironmentStruct
+{
+    vec4 indirectSpecularColorFactor;
+    vec4 indirectDiffuseColorFactor;
+    vec4 envMapColorFactor;
+    vec4 values;
+    vec4 blendFactor;
+    mat4 envRotation;
+    uvec4 indices;
+    vec4 shIndirectCoefficients[9];
+    uvec4 multiEnvIndices;
+    vec4 packedSun;
+    vec4 packedPhases;
+    vec4 groundColor;
+    vec4 aerialPerspectiveParams;
+    vec4 skySunParams;
+    vec4 skySunColor;
+    vec4 skyMoonNightParams;
+    vec4 skyMoonColor;
+    vec4 padding[4];
+};
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_4
+#define SPIRV_CROSS_CONSTANT_ID_4 0u
+#endif
+const uint CORE_CAMERA_FLAGS = SPIRV_CROSS_CONSTANT_ID_4;
+#ifndef SPIRV_CROSS_CONSTANT_ID_5
+#define SPIRV_CROSS_CONSTANT_ID_5 0u
+#endif
+const uint CORE_DEFAULT_ENV_TYPE = SPIRV_CROSS_CONSTANT_ID_5;
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+
+struct DefaultMaterialSingleLightStruct
+{
+    vec4 pos;
+    vec4 dir;
+    vec4 color;
+    vec4 spotLightParams;
+    vec4 shadowFactors;
+    vec4 additionalFactor;
+    uvec4 flags;
+    uvec4 indices;
+};
+
+struct DefaultMaterialLightStruct
+{
+    uint directionalLightBeginIndex;
+    uint directionalLightCount;
+    uint pointLightBeginIndex;
+    uint pointLightCount;
+    uint spotLightBeginIndex;
+    uint spotLightCount;
+    uint rectLightBeginIndex;
+    uint rectLightCount;
+    uvec4 clusterSizes;
+    vec4 clusterFactors;
+    vec4 atlasSizeInvSize;
+    vec4 additionalFactors;
+    DefaultMaterialSingleLightStruct lights[64];
+    float vpcfRadius;
+    uint vpcfSampleCount;
+    uint paddings0;
+    uint paddings1;
+};
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct DefaultMaterialLightClusterData
+{
+    uint count;
+    uint lightIndices[15];
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_MATERIAL_TYPE = SPIRV_CROSS_CONSTANT_ID_0;
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+#ifndef SPIRV_CROSS_CONSTANT_ID_2
+#define SPIRV_CROSS_CONSTANT_ID_2 0u
+#endif
+const uint CORE_LIGHTING_FLAGS = SPIRV_CROSS_CONSTANT_ID_2;
+#ifndef SPIRV_CROSS_CONSTANT_ID_3
+#define SPIRV_CROSS_CONSTANT_ID_3 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_3;
+
+layout(std140) uniform s0_b3
+{
+    DefaultMaterialFogStruct uFogData;
+} _s0_b3;
+
+layout(std140) uniform s0_b2
+{
+    DefaultMaterialEnvironmentStruct uEnvironmentDataArray[8];
+} _s0_b2;
+
+layout(std140) uniform s3_b4
+{
+    mat4 uViewInvMatrices[144];
+} _s3_b4;
+
+layout(std140) uniform s0_b0
+{
+    DefaultCameraMatrixStruct uCameras[16];
+} _s0_b0;
+
+layout(std140) uniform s0_b1
+{
+    DefaultMaterialGeneralDataStruct uGeneralData;
+} _s0_b1;
+
+struct uPushConstant
+{
+    uint uViewMatrixIndex;
+};
+
+uniform uPushConstant CORE_PC_0;
+
+uniform highp samplerCube s3_b1;
+uniform highp samplerCube s3_b2;
+uniform highp sampler2D s3_b0;
+
+layout(location = 0) out vec4 outColor;
+layout(location = 1) flat in uint inIndices;
+layout(location = 0) in vec2 inUv;
+
+uint GetUnpackFlatIndicesCameraIdx(uint indices)
+{
+    return indices & 65535u;
+}
+
+vec3 unpackEnvMap(vec4 envColorRgbd)
+{
+    return envColorRgbd.xyz * (1.0 / envColorRgbd.w);
+}
+
+vec3 GetEnvMapSample(highp samplerCube cubeMap, vec3 worldView, float lodLevel)
+{
+    vec4 param = textureLod(cubeMap, worldView, lodLevel);
+    return unpackEnvMap(param);
+}
+
+void GetBlendedMultiEnvMapSample(uvec4 multiEnvIndices, vec3 worldView, float lodLevel, float blendVal, out vec3 color, out vec3 factor)
+{
+    vec3 param = worldView;
+    float param_1 = lodLevel;
+    vec3 cube1 = GetEnvMapSample(s3_b1, param, param_1);
+    vec3 param_2 = worldView;
+    float param_3 = lodLevel;
+    vec3 cube2 = GetEnvMapSample(s3_b2, param_2, param_3);
+    uint env1Idx = min(multiEnvIndices.y, 7u);
+    uint env2Idx = min(multiEnvIndices.z, 7u);
+    vec3 factor1 = _s0_b2.uEnvironmentDataArray[env1Idx].envMapColorFactor.xyz;
+    vec3 factor2 = _s0_b2.uEnvironmentDataArray[env2Idx].envMapColorFactor.xyz;
+    color = mix(cube1, cube2, vec3(blendVal));
+    factor = mix(factor1, factor2, vec3(blendVal));
+}
+
+float CalculateLineIntegral(FogLayer layer, float rayDirY, float rayOrigY)
+{
+    float exponent = max(-127.0, layer.fallOff * (rayOrigY - layer.offset));
+    float falloff = max(-127.0, layer.fallOff * rayDirY);
+    float lineIntegral = (1.0 - exp2(-falloff)) / falloff;
+    float lineIntegralTaylor = 0.693147182464599609375 - (0.2402265071868896484375 * falloff);
+    return (layer.density * exp2(-exponent)) * ((abs(falloff) > 0.004999999888241291046142578125) ? lineIntegral : lineIntegralTaylor);
+}
+
+void InplaceFogBlock(uint flags, vec3 worldPos, vec3 camWorldPos, vec4 inCol, out vec3 outCol)
+{
+    outCol = inCol.xyz;
+    if ((flags & 1u) == 1u)
+    {
+        vec3 cameraToPointVector = worldPos - camWorldPos;
+        float cameraToPointY = cameraToPointVector.y;
+        float cameraY = camWorldPos.y;
+        float cameraToPointLengthSqr = dot(cameraToPointVector, cameraToPointVector);
+        float cameraToPointLengthInv = inversesqrt(cameraToPointLengthSqr);
+        float worldDistanceToCamera = cameraToPointLengthSqr * cameraToPointLengthInv;
+        float minDistance = _s0_b3.uFogData.baseFactors.x;
+        if (minDistance > 0.0)
+        {
+            float minIntersectionT = minDistance * cameraToPointLengthInv;
+            float cameraToMinIntersectionY = minIntersectionT * cameraToPointY;
+            cameraToPointY -= cameraToMinIntersectionY;
+            cameraY += cameraToMinIntersectionY;
+            worldDistanceToCamera = (1.0 - minIntersectionT) * worldDistanceToCamera;
+        }
+        FogLayer L1 = FogLayer(_s0_b3.uFogData.firstLayer.x, _s0_b3.uFogData.firstLayer.y, _s0_b3.uFogData.firstLayer.z);
+        FogLayer param = L1;
+        float param_1 = cameraToPointY;
+        float param_2 = cameraY;
+        float layer1Integral = CalculateLineIntegral(param, param_1, param_2);
+        FogLayer L2 = FogLayer(_s0_b3.uFogData.secondLayer.x, _s0_b3.uFogData.secondLayer.y, _s0_b3.uFogData.secondLayer.z);
+        FogLayer param_3 = L2;
+        float param_4 = cameraToPointY;
+        float param_5 = cameraY;
+        float layer2Integral = CalculateLineIntegral(param_3, param_4, param_5);
+        float exponentialHeightLineIntegral = (layer1Integral + layer2Integral) * worldDistanceToCamera;
+        float maxOpacity = _s0_b3.uFogData.baseFactors.z;
+        float expFogFactor = min(1.0 - clamp(exp2(-exponentialHeightLineIntegral), 0.0, 1.0), maxOpacity);
+        float cutOffDistance = _s0_b3.uFogData.baseFactors.y;
+        if ((cutOffDistance > 0.0) && (worldDistanceToCamera > cutOffDistance))
+        {
+            expFogFactor = 0.0;
+        }
+        vec4 inscatteringColor = _s0_b3.uFogData.inscatteringColor;
+        vec4 envMapColor = _s0_b3.uFogData.envMapFactor;
+        vec3 fogColor = (inscatteringColor.xyz * inscatteringColor.w) + (envMapColor.xyz * envMapColor.w);
+        vec3 baseColor = inCol.xyz;
+        outCol = mix(baseColor, fogColor, vec3(expFogFactor));
+    }
+}
+
+void InplaceEnvironmentBlockLightProbes(uint environmentType, uint cameraIdx, vec2 uv, inout vec4 color)
+{
+    color = vec4(0.0, 0.0, 0.0, 1.0);
+    DefaultMaterialEnvironmentStruct envData;
+    envData.indirectSpecularColorFactor = _s0_b2.uEnvironmentDataArray[0].indirectSpecularColorFactor;
+    envData.indirectDiffuseColorFactor = _s0_b2.uEnvironmentDataArray[0].indirectDiffuseColorFactor;
+    envData.envMapColorFactor = _s0_b2.uEnvironmentDataArray[0].envMapColorFactor;
+    envData.values = _s0_b2.uEnvironmentDataArray[0].values;
+    envData.blendFactor = _s0_b2.uEnvironmentDataArray[0].blendFactor;
+    envData.envRotation = _s0_b2.uEnvironmentDataArray[0].envRotation;
+    envData.indices = _s0_b2.uEnvironmentDataArray[0].indices;
+    envData.shIndirectCoefficients = _s0_b2.uEnvironmentDataArray[0].shIndirectCoefficients;
+    envData.multiEnvIndices = _s0_b2.uEnvironmentDataArray[0].multiEnvIndices;
+    envData.packedSun = _s0_b2.uEnvironmentDataArray[0].packedSun;
+    envData.packedPhases = _s0_b2.uEnvironmentDataArray[0].packedPhases;
+    envData.groundColor = _s0_b2.uEnvironmentDataArray[0].groundColor;
+    envData.aerialPerspectiveParams = _s0_b2.uEnvironmentDataArray[0].aerialPerspectiveParams;
+    envData.skySunParams = _s0_b2.uEnvironmentDataArray[0].skySunParams;
+    envData.skySunColor = _s0_b2.uEnvironmentDataArray[0].skySunColor;
+    envData.skyMoonNightParams = _s0_b2.uEnvironmentDataArray[0].skyMoonNightParams;
+    envData.skyMoonColor = _s0_b2.uEnvironmentDataArray[0].skyMoonColor;
+    envData.padding = _s0_b2.uEnvironmentDataArray[0].padding;
+    mediump float lodLevel = envData.values.y;
+    mat4 viewInv = _s3_b4.uViewInvMatrices[CORE_PC_0.uViewMatrixIndex];
+    mat4 viewInvEnv = viewInv;
+    viewInvEnv[3] = vec4(0.0, 0.0, 0.0, 1.0);
+    if ((_s0_b0.uCameras[cameraIdx].counts.y & 1u) == 1u)
+    {
+        viewInvEnv = viewInvEnv * _s0_b0.uCameras[cameraIdx].envProjInv;
+    }
+    else
+    {
+        viewInvEnv = viewInvEnv * _s0_b0.uCameras[cameraIdx].projInv;
+    }
+    vec4 farPlane = viewInvEnv * vec4(uv.x, uv.y, 1.0, 1.0);
+    vec4 _483 = farPlane;
+    float _486 = farPlane.w;
+    vec3 _488 = _483.xyz / vec3(_486);
+    farPlane.x = _488.x;
+    farPlane.y = _488.y;
+    farPlane.z = _488.z;
+    vec3 colorFactor = envData.envMapColorFactor.xyz;
+    if ((environmentType == 2u) || (environmentType == 3u))
+    {
+        vec4 nearPlane = viewInvEnv * vec4(uv.x, uv.y, 0.99989998340606689453125, 1.0);
+        vec4 _515 = nearPlane;
+        float _518 = nearPlane.w;
+        vec3 _520 = _515.xyz / vec3(_518);
+        nearPlane.x = _520.x;
+        nearPlane.y = _520.y;
+        nearPlane.z = _520.z;
+        vec3 worldView = mat3(envData.envRotation[0].xyz, envData.envRotation[1].xyz, envData.envRotation[2].xyz) * normalize(farPlane.xyz - nearPlane.xyz);
+        if (environmentType == 2u)
+        {
+            uvec4 multiEnvIndices = envData.multiEnvIndices;
+            if (multiEnvIndices.x > 0u)
+            {
+                vec3 col = vec3(0.0);
+                uvec4 param = multiEnvIndices;
+                vec3 param_1 = worldView;
+                float param_2 = lodLevel;
+                float param_3 = envData.blendFactor.x;
+                vec3 param_4;
+                vec3 param_5;
+                GetBlendedMultiEnvMapSample(param, param_1, param_2, param_3, param_4, param_5);
+                col = param_4;
+                colorFactor = param_5;
+                color.x = col.x;
+                color.y = col.y;
+                color.z = col.z;
+            }
+            else
+            {
+                vec3 param_6 = worldView;
+                float param_7 = lodLevel;
+                vec3 _585 = GetEnvMapSample(s3_b1, param_6, param_7);
+                color.x = _585.x;
+                color.y = _585.y;
+                color.z = _585.z;
+            }
+        }
+        else
+        {
+            vec2 texCoord = vec2(atan(worldView.z, worldView.x) + 3.1415927410125732421875, acos(worldView.y)) / vec2(6.283185482025146484375, 3.1415927410125732421875);
+            color = textureLod(s3_b0, texCoord, lodLevel);
+        }
+    }
+    else
+    {
+        if (environmentType == 1u)
+        {
+            vec2 texCoord_1 = (uv + vec2(1.0)) * 0.5;
+            color = textureLod(s3_b0, texCoord_1, lodLevel);
+        }
+    }
+    vec4 _632 = color;
+    vec3 _634 = _632.xyz * colorFactor;
+    color.x = _634.x;
+    color.y = _634.y;
+    color.z = _634.z;
+    vec3 camPos = viewInv[3].xyz;
+    vec3 fogColor = color.xyz;
+    uint param_8 = CORE_CAMERA_FLAGS;
+    vec3 param_9 = farPlane.xyz;
+    vec3 param_10 = camPos;
+    vec4 param_11 = color;
+    vec3 param_12;
+    InplaceFogBlock(param_8, param_9, param_10, param_11, param_12);
+    fogColor = param_12;
+    color.x = fogColor.x;
+    color.y = fogColor.y;
+    color.z = fogColor.z;
+}
+
+vec2 GetFragCoordUv(vec2 fragCoord, vec2 inverseTexelSize)
+{
+    vec2 uv = fragCoord * inverseTexelSize;
+    if (CORE_FLIP_NDC < 0.0)
+    {
+        uv = vec2(uv.x, 1.0 - uv.y);
+    }
+    return uv;
+}
+
+void main()
+{
+    outColor = vec4(0.0, 0.0, 0.0, 1.0);
+    uint param = inIndices;
+    uint cameraIdx = GetUnpackFlatIndicesCameraIdx(param);
+    uint param_1 = CORE_DEFAULT_ENV_TYPE;
+    uint param_2 = cameraIdx;
+    vec2 param_3 = inUv;
+    vec4 param_4;
+    InplaceEnvironmentBlockLightProbes(param_1, param_2, param_3, param_4);
+    outColor = param_4;
+    vec2 param_5 = gl_FragCoord.xy;
+    vec2 param_6 = _s0_b1.uGeneralData.viewportSizeInvViewportSize.zw;
+    vec2 fragUv = GetFragCoordUv(param_5, param_6);
+}
+

@@ -1,0 +1,319 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct AtmosphericConfig
+{
+    vec3 rayleighScatteringBase;
+    vec3 ozoneAbsorptionBase;
+    float mieScatteringBase;
+    float mieAbsorptionBase;
+    vec3 groundColor;
+    float skyViewBrightness;
+};
+
+struct PushConstantLocalStruct
+{
+    vec4 cameraPosSunElevation;
+    vec4 rayleighScatteringBase;
+    vec4 ozoneAbsorptionBase;
+    vec4 groundColor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPostProcessPushConstant
+{
+    PushConstantLocalStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform sampler2D s0_b1;
+uniform sampler2D s0_b2;
+layout(binding = 11, r11f_g11f_b10f) uniform writeonly image2D s0_b0;
+
+float Safeacos(float x)
+{
+    return acos(clamp(x, -1.0, 1.0));
+}
+
+vec2 RayIntersectSphere2D(vec3 start, vec3 dir, float radius)
+{
+    float a = dot(dir, dir);
+    float b = 2.0 * dot(dir, start);
+    float c = dot(start, start) - (radius * radius);
+    float d = (b * b) - ((4.0 * a) * c);
+    if (d < 0.0)
+    {
+        return vec2(100000.0, -100000.0);
+    }
+    return vec2(((-b) - sqrt(d)) / (2.0 * a), ((-b) + sqrt(d)) / (2.0 * a));
+}
+
+float RayIntersectSphere(vec3 ro, vec3 rd, float rad)
+{
+    float b = dot(ro, rd);
+    float c = dot(ro, ro) - (rad * rad);
+    if ((c > 0.0) && (b > 0.0))
+    {
+        return -1.0;
+    }
+    float discr = (b * b) - c;
+    if (discr < 0.0)
+    {
+        return -1.0;
+    }
+    if (discr > (b * b))
+    {
+        return (-b) + sqrt(discr);
+    }
+    return (-b) - sqrt(discr);
+}
+
+float GetMiePhase(float cosTheta)
+{
+    float num = 0.36000001430511474609375 * (1.0 + (cosTheta * cosTheta));
+    float denom = 2.6400001049041748046875 * pow(1.63999998569488525390625 - (1.60000002384185791015625 * cosTheta), 1.5);
+    return (0.119366206228733062744140625 * num) / denom;
+}
+
+float GetRayleighPhase(float cosTheta)
+{
+    return 0.0596831031143665313720703125 * (1.0 + (cosTheta * cosTheta));
+}
+
+void GetScatteringValues(vec3 pos, AtmosphericConfig atmosphericConfig, inout vec3 rayleighScattering, inout float mieScattering, out vec3 extinction)
+{
+    float altitudeKM = length(pos) - 6371.0;
+    float rayleighDensity = exp((-altitudeKM) / 8.0);
+    float mieDensity = exp((-altitudeKM) / 1.2000000476837158203125);
+    rayleighScattering = (atmosphericConfig.rayleighScatteringBase * 0.001000000047497451305389404296875) * rayleighDensity;
+    float rayleighAbsorption = 0.0 * rayleighDensity;
+    mieScattering = (atmosphericConfig.mieScatteringBase * 0.001000000047497451305389404296875) * mieDensity;
+    float mieAbsorption = (atmosphericConfig.mieAbsorptionBase * 0.001000000047497451305389404296875) * mieDensity;
+    vec3 ozoneAbsorption = (atmosphericConfig.ozoneAbsorptionBase * 0.001000000047497451305389404296875) * max(0.0, 1.0 - (abs(altitudeKM - 25.0) / 15.0));
+    extinction = (((rayleighScattering + vec3(rayleighAbsorption)) + vec3(mieScattering)) + vec3(mieAbsorption)) + ozoneAbsorption;
+}
+
+vec2 GetTransmittanceTextureUvFromRMu(float r, float mu)
+{
+    float h = 1133.2254638671875;
+    float rho = sqrt(max(0.0, (r * r) - 40589640.0));
+    float dMin = 6471.0 - r;
+    float dMax = rho + h;
+    float discriminant = ((r * r) * ((mu * mu) - 1.0)) + 41873840.0;
+    float d = max(0.0, ((-r) * mu) + sqrt(max(0.0, discriminant)));
+    float xMu = clamp((d - dMin) / (dMax - dMin), 0.0, 1.0);
+    float xR = clamp(rho / h, 0.0, 1.0);
+    return vec2(xMu, xR);
+}
+
+vec3 GetValFromTransmittanceLUT(ivec2 bufferRes, vec3 pos, vec3 sunDir)
+{
+    float height = length(pos);
+    vec3 up = pos / vec3(height);
+    float sunCosZenithAngle = dot(sunDir, up);
+    bool _355 = sunCosZenithAngle < 0.0;
+    bool _365;
+    if (_355)
+    {
+        vec3 param = pos;
+        vec3 param_1 = sunDir;
+        float param_2 = 6371.0;
+        _365 = RayIntersectSphere(param, param_1, param_2) > 0.0;
+    }
+    else
+    {
+        _365 = _355;
+    }
+    if (_365)
+    {
+        return vec3(0.0);
+    }
+    float param_3 = height;
+    float param_4 = sunCosZenithAngle;
+    vec2 uv = GetTransmittanceTextureUvFromRMu(param_3, param_4);
+    return textureLod(s0_b1, uv, 0.0).xyz;
+}
+
+vec3 GetValFromMultipleScatteringLUT(ivec2 bufferRes, vec3 pos, vec3 sunDir)
+{
+    float height = length(pos);
+    vec3 up = pos / vec3(height);
+    float sunCosZenithAngle = dot(sunDir, up);
+    float normalizedHeight = clamp((height - 6371.0) / 100.0, 0.0, 1.0);
+    vec2 uv;
+    uv.x = clamp(0.5 + (0.5 * sunCosZenithAngle), 0.0, 1.0);
+    uv.y = normalizedHeight;
+    return textureLod(s0_b2, uv, 0.0).xyz;
+}
+
+float GetSkyExposure(vec3 sunDir, float skyViewBrightness)
+{
+    float exposureBase = 20.0 * clamp(skyViewBrightness, 0.0, 10.0);
+    float elevationFactor = smoothstep(-0.100000001490116119384765625, 0.4000000059604644775390625, sunDir.y);
+    float exposure = exposureBase * mix(2.0, 0.5, elevationFactor);
+    return exposure;
+}
+
+vec3 RaymarchScattering(vec3 viewPos, vec3 rayDir, vec3 sunDir, int numSteps, AtmosphericConfig atmosphericConfig)
+{
+    vec3 param = viewPos;
+    vec3 param_1 = rayDir;
+    float param_2 = 6471.0;
+    vec2 atmosIntercept = RayIntersectSphere2D(param, param_1, param_2);
+    vec3 param_3 = viewPos;
+    vec3 param_4 = rayDir;
+    float param_5 = 6371.0;
+    float terraIntercept = RayIntersectSphere(param_3, param_4, param_5);
+    bool hitGround = false;
+    float mindist;
+    float maxdist;
+    if (atmosIntercept.x < atmosIntercept.y)
+    {
+        float _473;
+        if (atmosIntercept.x > 0.0)
+        {
+            _473 = atmosIntercept.x;
+        }
+        else
+        {
+            _473 = 0.0;
+        }
+        mindist = _473;
+        float _484;
+        if (atmosIntercept.y > 0.0)
+        {
+            _484 = atmosIntercept.y;
+        }
+        else
+        {
+            _484 = 0.0;
+        }
+        maxdist = _484;
+    }
+    else
+    {
+        return vec3(0.0);
+    }
+    if (length(viewPos) < 6471.0)
+    {
+        mindist = 0.0;
+    }
+    if (terraIntercept > 0.0)
+    {
+        maxdist = terraIntercept;
+        hitGround = true;
+    }
+    vec3 pos = viewPos + (rayDir * mindist);
+    float cosTheta = dot(rayDir, sunDir);
+    float param_6 = cosTheta;
+    float miePhaseValue = GetMiePhase(param_6);
+    float param_7 = -cosTheta;
+    float rayleighPhaseValue = GetRayleighPhase(param_7);
+    ivec2 transmittanceDim = textureSize(s0_b1, 0);
+    ivec2 multipleScatteringDim = textureSize(s0_b2, 0);
+    vec3 lum = vec3(0.0);
+    vec3 transmittance = vec3(1.0);
+    float t = 0.0;
+    float segmentLength = maxdist - mindist;
+    vec3 param_9;
+    float param_10;
+    vec3 param_11;
+    for (uint i = 0u; i < uint(numSteps); i++)
+    {
+        float newT = ((float(i) + 0.300000011920928955078125) / float(numSteps)) * segmentLength;
+        float dt = newT - t;
+        t = newT;
+        vec3 newPos = pos + (rayDir * t);
+        vec3 rayleighScattering = vec3(0.0);
+        vec3 extinction = vec3(0.0);
+        vec3 param_8 = newPos;
+        GetScatteringValues(param_8, atmosphericConfig, param_9, param_10, param_11);
+        rayleighScattering = param_9;
+        float mieScattering = param_10;
+        extinction = param_11;
+        extinction = max(extinction, vec3(9.9999999747524270787835121154785e-07));
+        vec3 sampleTransmittance = exp(extinction * (-dt));
+        ivec2 param_12 = transmittanceDim;
+        vec3 param_13 = newPos;
+        vec3 param_14 = sunDir;
+        vec3 sunTransmittance = GetValFromTransmittanceLUT(param_12, param_13, param_14);
+        ivec2 param_15 = multipleScatteringDim;
+        vec3 param_16 = newPos;
+        vec3 param_17 = sunDir;
+        vec3 psiMS = GetValFromMultipleScatteringLUT(param_15, param_16, param_17);
+        vec3 rayleighInScattering = rayleighScattering * ((sunTransmittance * rayleighPhaseValue) + psiMS);
+        vec3 mieInScattering = ((sunTransmittance * miePhaseValue) + psiMS) * mieScattering;
+        vec3 inScattering = rayleighInScattering + mieInScattering;
+        vec3 scatteringIntegral = (inScattering - (inScattering * sampleTransmittance)) / extinction;
+        lum += (scatteringIntegral * transmittance);
+        transmittance *= sampleTransmittance;
+    }
+    if (hitGround)
+    {
+        float blendFactor = max(0.0, -sunDir.y);
+        lum = atmosphericConfig.groundColor * blendFactor;
+    }
+    vec3 param_18 = -sunDir;
+    float param_19 = atmosphericConfig.skyViewBrightness;
+    lum *= GetSkyExposure(param_18, param_19);
+    return lum;
+}
+
+void main()
+{
+    ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imageDim = imageSize(s0_b0);
+    AtmosphericConfig atmosphericConfig;
+    atmosphericConfig.rayleighScatteringBase = CORE_PC_0.uPc.rayleighScatteringBase.xyz;
+    atmosphericConfig.mieAbsorptionBase = CORE_PC_0.uPc.rayleighScatteringBase.w;
+    atmosphericConfig.ozoneAbsorptionBase = CORE_PC_0.uPc.ozoneAbsorptionBase.xyz;
+    atmosphericConfig.mieScatteringBase = CORE_PC_0.uPc.ozoneAbsorptionBase.w;
+    atmosphericConfig.groundColor = CORE_PC_0.uPc.groundColor.xyz;
+    atmosphericConfig.skyViewBrightness = CORE_PC_0.uPc.groundColor.w;
+    if (any(greaterThanEqual(uv, imageDim)))
+    {
+        return;
+    }
+    float u = clamp(float(uv.x) + 0.5, 0.0, float(imageDim.x - 1)) / float(imageDim.x);
+    float v = clamp(float(uv.y) + 0.5, 0.0, float(imageDim.y - 1)) / float(imageDim.y);
+    v = 1.0 - v;
+    float azimuthAngle = ((u - 0.5) * 2.0) * 3.1415927410125732421875;
+    float adjV;
+    if (v < 0.5)
+    {
+        float coord = 1.0 - (2.0 * v);
+        adjV = (-coord) * coord;
+    }
+    else
+    {
+        float coord_1 = (v * 2.0) - 1.0;
+        adjV = coord_1 * coord_1;
+    }
+    vec3 actualCameraPos = CORE_PC_0.uPc.cameraPosSunElevation.xyz;
+    float actualHeight = length(actualCameraPos);
+    float scaledHeight = 6371.0 + (actualHeight * 0.001000000047497451305389404296875);
+    vec3 viewPos = vec3(0.0, -scaledHeight, 0.0);
+    float height = length(viewPos);
+    vec3 up = viewPos / vec3(height);
+    float horizonParam = (height * height) - 40589640.0;
+    float horizonAngle = Safeacos(sqrt(horizonParam) / height) - 1.57079637050628662109375;
+    float altitudeAngle = ((adjV * 0.5) * 3.1415927410125732421875) - horizonAngle;
+    float cosAltitude = cos(altitudeAngle);
+    vec3 rayDir = vec3(cosAltitude * sin(azimuthAngle), sin(altitudeAngle), (-cosAltitude) * cos(azimuthAngle));
+    float sunElevation = CORE_PC_0.uPc.cameraPosSunElevation.w;
+    vec3 sunDir = vec3(0.0, sin(sunElevation), -cos(sunElevation));
+    vec3 param = viewPos;
+    vec3 param_1 = rayDir;
+    vec3 param_2 = -sunDir;
+    int param_3 = 32;
+    vec3 lum = RaymarchScattering(param, param_1, param_2, param_3, atmosphericConfig);
+    imageStore(s0_b0, uv, vec4(lum, 1.0));
+}
+

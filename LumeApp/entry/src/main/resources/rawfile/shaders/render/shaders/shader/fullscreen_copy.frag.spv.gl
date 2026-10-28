@@ -1,0 +1,25 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+uniform sampler2D s0_b1_s0_b0;
+
+layout(location = 0) out vec4 outColor;
+layout(location = 0) in vec2 inUv;
+
+void main()
+{
+    outColor = textureLod(s0_b1_s0_b0, inUv, 0.0);
+}
+

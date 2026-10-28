@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Lume 3D rendering module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Lume 3D rendering demo"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "LumeApp"
+    }
+  ]
+}

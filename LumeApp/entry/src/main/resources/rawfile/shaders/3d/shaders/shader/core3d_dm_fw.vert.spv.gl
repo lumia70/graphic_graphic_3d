@@ -1,0 +1,355 @@
+#version 450
+#ifdef GL_ARB_shader_draw_parameters
+#extension GL_ARB_shader_draw_parameters : enable
+#endif
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+const uint _51 = (CORE_MATERIAL_FLAGS & 16384u);
+const bool _53 = (_51 == 16384u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_6
+#define SPIRV_CROSS_CONSTANT_ID_6 0u
+#endif
+const uint CORE_SUBMESH_FLAGS = SPIRV_CROSS_CONSTANT_ID_6;
+const uint _67 = (CORE_SUBMESH_FLAGS & 4u);
+const bool _68 = (_67 == 4u);
+
+struct DefaultMaterialSkinStruct
+{
+    mat4 jointMatrices[256];
+};
+
+struct DefaultMaterialSingleMeshStruct
+{
+    mat4 world;
+    mat4 normalWorld;
+    mat4 prevWorld;
+    uvec4 indices;
+    uvec4 layers;
+    uvec4 customData[2];
+};
+
+struct DefaultMaterialMeshStruct
+{
+    DefaultMaterialSingleMeshStruct mesh[64];
+};
+
+const uint _185 = (CORE_SUBMESH_FLAGS & 32u);
+const bool _186 = (_185 == 32u);
+const uint _286 = (CORE_SUBMESH_FLAGS & 32u);
+const bool _287 = (_286 == 32u);
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+const uint _356 = (CORE_BACKEND_TYPE & 15u);
+const bool _357 = (_356 != 0u);
+uniform float CORE_FLIP_NDC ;
+const uint _392 = (CORE_SUBMESH_FLAGS & 32u);
+const bool _393 = (_392 == 32u);
+const uint _416 = (CORE_SUBMESH_FLAGS & 1u);
+const bool _417 = (_416 == 1u);
+const uint _445 = (CORE_SUBMESH_FLAGS & 8u);
+const bool _446 = (_445 == 8u);
+const uint _455 = (CORE_SUBMESH_FLAGS & 2u);
+const bool _456 = (_455 == 2u);
+
+struct DefaultMaterialEnvironmentStruct
+{
+    vec4 indirectSpecularColorFactor;
+    vec4 indirectDiffuseColorFactor;
+    vec4 envMapColorFactor;
+    vec4 values;
+    vec4 blendFactor;
+    mat4 envRotation;
+    uvec4 indices;
+    vec4 shIndirectCoefficients[9];
+    uvec4 multiEnvIndices;
+    vec4 packedSun;
+    vec4 packedPhases;
+    vec4 groundColor;
+    vec4 aerialPerspectiveParams;
+    vec4 skySunParams;
+    vec4 skySunColor;
+    vec4 skyMoonNightParams;
+    vec4 skyMoonColor;
+    vec4 padding[4];
+};
+
+struct DefaultMaterialFogStruct
+{
+    uvec4 indices;
+    vec4 firstLayer;
+    vec4 secondLayer;
+    vec4 baseFactors;
+    vec4 inscatteringColor;
+    vec4 envMapFactor;
+    vec4 additionalFactor;
+};
+
+struct DefaultMaterialSingleLightStruct
+{
+    vec4 pos;
+    vec4 dir;
+    vec4 color;
+    vec4 spotLightParams;
+    vec4 shadowFactors;
+    vec4 additionalFactor;
+    uvec4 flags;
+    uvec4 indices;
+};
+
+struct DefaultMaterialLightStruct
+{
+    uint directionalLightBeginIndex;
+    uint directionalLightCount;
+    uint pointLightBeginIndex;
+    uint pointLightCount;
+    uint spotLightBeginIndex;
+    uint spotLightCount;
+    uint rectLightBeginIndex;
+    uint rectLightCount;
+    uvec4 clusterSizes;
+    vec4 clusterFactors;
+    vec4 atlasSizeInvSize;
+    vec4 additionalFactors;
+    DefaultMaterialSingleLightStruct lights[64];
+    float vpcfRadius;
+    uint vpcfSampleCount;
+    uint paddings0;
+    uint paddings1;
+};
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct DefaultMaterialSingleMaterialStruct
+{
+    vec4 factors[15];
+    uvec4 indices;
+};
+
+struct DefaultMaterialMaterialStruct
+{
+    DefaultMaterialSingleMaterialStruct material[64];
+};
+
+struct DefaultMaterialTransformSingleMaterialStruct
+{
+    uvec4 _packed[15];
+    uvec4 indices;
+};
+
+struct DefaultMaterialTransformMaterialStruct
+{
+    DefaultMaterialTransformSingleMaterialStruct material[64];
+};
+
+struct DefaultMaterialSingleUserMaterialStruct
+{
+    uvec4 userData[16];
+};
+
+struct DefaultMaterialUserMaterialStruct
+{
+    DefaultMaterialSingleUserMaterialStruct material[64];
+};
+
+layout(std140) uniform s1_b1
+{
+    DefaultMaterialSkinStruct uSkinData;
+} _s1_b1;
+
+layout(std140) uniform s1_b0
+{
+    DefaultMaterialMeshStruct uMeshMatrix;
+} _s1_b0;
+
+layout(std140) uniform s0_b1
+{
+    DefaultMaterialGeneralDataStruct uGeneralData;
+} _s0_b1;
+
+layout(std140) uniform s0_b0
+{
+    DefaultCameraMatrixStruct uCameras[16];
+} _s0_b0;
+
+#ifdef GL_ARB_shader_draw_parameters
+#define SPIRV_Cross_BaseInstance gl_BaseInstanceARB
+#else
+uniform int SPIRV_Cross_BaseInstance;
+#endif
+layout(location = 5) in uvec4 inIndex;
+layout(location = 6) in vec4 inWeight;
+layout(location = 0) in vec3 inPosition;
+layout(location = 6) flat out uint outIndices;
+layout(location = 0) out vec3 outPos;
+layout(location = 3) out vec4 outPrevPosI;
+layout(location = 1) out vec3 outNormal;
+layout(location = 1) in vec3 inNormal;
+layout(location = 2) out vec4 outTangentW;
+layout(location = 4) in vec4 inTangent;
+layout(location = 4) out vec4 outUv;
+layout(location = 2) in vec2 inUv0;
+layout(location = 3) in vec2 inUv1;
+layout(location = 5) out vec4 outColor;
+layout(location = 7) in vec4 inColor;
+
+uint GetUnpackCameraIndex(DefaultMaterialGeneralDataStruct dmgds)
+{
+    return dmgds.indices.x;
+}
+
+uint GetInstanceIndex()
+{
+    uint instanceIdx = 0u;
+    if (_53)
+    {
+        instanceIdx = uint((gl_InstanceID + SPIRV_Cross_BaseInstance));
+    }
+    return instanceIdx;
+}
+
+void GetWorldMatrix(out mat4 worldMatrix, out mat3 normalMatrix, inout mat4 prevWorldMatrix)
+{
+    uint instanceIdx = GetInstanceIndex();
+    if (_68)
+    {
+        mat4 world = _s1_b1.uSkinData.jointMatrices[inIndex.x] * inWeight.x;
+        mat4 _99 = _s1_b1.uSkinData.jointMatrices[inIndex.y] * inWeight.y;
+        world = mat4(world[0] + _99[0], world[1] + _99[1], world[2] + _99[2], world[3] + _99[3]);
+        mat4 _121 = _s1_b1.uSkinData.jointMatrices[inIndex.z] * inWeight.z;
+        world = mat4(world[0] + _121[0], world[1] + _121[1], world[2] + _121[2], world[3] + _121[3]);
+        mat4 _143 = _s1_b1.uSkinData.jointMatrices[inIndex.w] * inWeight.w;
+        world = mat4(world[0] + _143[0], world[1] + _143[1], world[2] + _143[2], world[3] + _143[3]);
+        worldMatrix = _s1_b0.uMeshMatrix.mesh[instanceIdx].world * world;
+        mat4 _176 = _s1_b0.uMeshMatrix.mesh[instanceIdx].normalWorld * world;
+        normalMatrix = mat3(_176[0].xyz, _176[1].xyz, _176[2].xyz);
+        if (_186)
+        {
+            uvec4 offIndex = inIndex + uvec4(128u);
+            mat4 prevWorld = _s1_b1.uSkinData.jointMatrices[offIndex.x] * inWeight.x;
+            mat4 _209 = _s1_b1.uSkinData.jointMatrices[offIndex.y] * inWeight.y;
+            prevWorld = mat4(prevWorld[0] + _209[0], prevWorld[1] + _209[1], prevWorld[2] + _209[2], prevWorld[3] + _209[3]);
+            mat4 _230 = _s1_b1.uSkinData.jointMatrices[offIndex.z] * inWeight.z;
+            prevWorld = mat4(prevWorld[0] + _230[0], prevWorld[1] + _230[1], prevWorld[2] + _230[2], prevWorld[3] + _230[3]);
+            mat4 _251 = _s1_b1.uSkinData.jointMatrices[offIndex.w] * inWeight.w;
+            prevWorld = mat4(prevWorld[0] + _251[0], prevWorld[1] + _251[1], prevWorld[2] + _251[2], prevWorld[3] + _251[3]);
+            prevWorldMatrix = _s1_b0.uMeshMatrix.mesh[instanceIdx].prevWorld * prevWorld;
+        }
+    }
+    else
+    {
+        worldMatrix = _s1_b0.uMeshMatrix.mesh[instanceIdx].world;
+        normalMatrix = mat3(_s1_b0.uMeshMatrix.mesh[instanceIdx].normalWorld[0].xyz, _s1_b0.uMeshMatrix.mesh[instanceIdx].normalWorld[1].xyz, _s1_b0.uMeshMatrix.mesh[instanceIdx].normalWorld[2].xyz);
+        if (_287)
+        {
+            prevWorldMatrix = _s1_b0.uMeshMatrix.mesh[instanceIdx].prevWorld;
+        }
+    }
+}
+
+uint GetPackFlatIndices(uint cameraIdx, uint instanceIdx)
+{
+    return (instanceIdx << uint(16)) | (cameraIdx & 65535u);
+}
+
+void main()
+{
+    DefaultMaterialGeneralDataStruct arg;
+    arg.indices = _s0_b1.uGeneralData.indices;
+    arg.viewportSizeInvViewportSize = _s0_b1.uGeneralData.viewportSizeInvViewportSize;
+    arg.sceneTimingData = _s0_b1.uGeneralData.sceneTimingData;
+    uint cameraIdx = GetUnpackCameraIndex(arg);
+    mat4 param;
+    mat3 param_1;
+    mat4 param_2;
+    GetWorldMatrix(param, param_1, param_2);
+    mat4 worldMatrix = param;
+    mat3 normalMatrix = param_1;
+    mat4 prevWorldMatrix = param_2;
+    vec4 worldPos = worldMatrix * vec4(inPosition, 1.0);
+    vec4 projPos = _s0_b0.uCameras[cameraIdx].viewProj * worldPos;
+    gl_Position = projPos;
+    if (_357)
+    {
+        gl_Position = vec4(gl_Position.x, gl_Position.y * CORE_FLIP_NDC, (gl_Position.z * 2.0) - gl_Position.w, gl_Position.w);
+    }
+    uint instanceIdx = GetInstanceIndex();
+    outIndices = GetPackFlatIndices(cameraIdx, instanceIdx);
+    outPos = worldPos.xyz;
+    outPrevPosI = vec4(0.0);
+    if (_393)
+    {
+        vec3 _403 = (prevWorldMatrix * vec4(inPosition, 1.0)).xyz;
+        outPrevPosI.x = _403.x;
+        outPrevPosI.y = _403.y;
+        outPrevPosI.z = _403.z;
+    }
+    outNormal = normalize(normalMatrix * inNormal);
+    if (_417)
+    {
+        outTangentW = vec4(normalize(normalMatrix * inTangent.xyz), inTangent.w);
+    }
+    else
+    {
+        outTangentW = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+    outUv.x = inUv0.x;
+    outUv.y = inUv0.y;
+    if (_446)
+    {
+        outUv.z = inUv1.x;
+        outUv.w = inUv1.y;
+    }
+    if (_456)
+    {
+        outColor = inColor;
+    }
+    else
+    {
+        outColor = vec4(1.0);
+    }
+}
+

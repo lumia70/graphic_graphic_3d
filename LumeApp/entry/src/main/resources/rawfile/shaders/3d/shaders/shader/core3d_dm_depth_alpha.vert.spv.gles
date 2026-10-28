@@ -1,0 +1,168 @@
+#version 320 es
+#ifdef GL_ARB_shader_draw_parameters
+#extension GL_ARB_shader_draw_parameters : enable
+#endif
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+const uint _44 = (CORE_MATERIAL_FLAGS & 16384u);
+const bool _46 = (_44 == 16384u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_SUBMESH_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+const uint _60 = (CORE_SUBMESH_FLAGS & 4u);
+const bool _61 = (_60 == 4u);
+
+struct DefaultMaterialSkinStruct
+{
+    mat4 jointMatrices[256];
+};
+
+struct DefaultMaterialSingleMeshStruct
+{
+    mat4 world;
+    mat4 normalWorld;
+    mat4 prevWorld;
+    uvec4 indices;
+    uvec4 layers;
+    uvec4 customData[2];
+};
+
+struct DefaultMaterialMeshStruct
+{
+    DefaultMaterialSingleMeshStruct mesh[64];
+};
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+const uint _240 = (CORE_BACKEND_TYPE & 15u);
+const bool _241 = (_240 != 0u);
+uniform float CORE_FLIP_NDC ;
+
+layout(std140) uniform s1_b1
+{
+    DefaultMaterialSkinStruct uSkinData;
+} _s1_b1;
+
+layout(std140) uniform s1_b0
+{
+    DefaultMaterialMeshStruct uMeshMatrix;
+} _s1_b0;
+
+layout(std140) uniform s0_b1
+{
+    DefaultMaterialGeneralDataStruct uGeneralData;
+} _s0_b1;
+
+layout(std140) uniform s0_b0
+{
+    DefaultCameraMatrixStruct uCameras[16];
+} _s0_b0;
+
+#ifdef GL_ARB_shader_draw_parameters
+#define SPIRV_Cross_BaseInstance gl_BaseInstanceARB
+#else
+uniform int SPIRV_Cross_BaseInstance;
+#endif
+layout(location = 2) in uvec4 inIndex;
+layout(location = 3) in mediump vec4 inWeight;
+layout(location = 0) out vec2 outUv;
+layout(location = 1) in vec2 inUv0;
+layout(location = 1) flat out uint outIndices;
+layout(location = 0) in vec3 inPosition;
+
+uint GetUnpackCameraIndex(DefaultMaterialGeneralDataStruct dmgds)
+{
+    return dmgds.indices.x;
+}
+
+uint GetInstanceIndex()
+{
+    uint instanceIdx = 0u;
+    if (_46)
+    {
+        instanceIdx = uint((gl_InstanceID + SPIRV_Cross_BaseInstance));
+    }
+    return instanceIdx;
+}
+
+mat4 getWorldMatrix()
+{
+    uint instanceIdx = GetInstanceIndex();
+    if (_61)
+    {
+        mat4 worldMatrix = _s1_b1.uSkinData.jointMatrices[inIndex.x] * inWeight.x;
+        mat4 _93 = _s1_b1.uSkinData.jointMatrices[inIndex.y] * inWeight.y;
+        worldMatrix = mat4(worldMatrix[0] + _93[0], worldMatrix[1] + _93[1], worldMatrix[2] + _93[2], worldMatrix[3] + _93[3]);
+        mat4 _115 = _s1_b1.uSkinData.jointMatrices[inIndex.z] * inWeight.z;
+        worldMatrix = mat4(worldMatrix[0] + _115[0], worldMatrix[1] + _115[1], worldMatrix[2] + _115[2], worldMatrix[3] + _115[3]);
+        mat4 _137 = _s1_b1.uSkinData.jointMatrices[inIndex.w] * inWeight.w;
+        worldMatrix = mat4(worldMatrix[0] + _137[0], worldMatrix[1] + _137[1], worldMatrix[2] + _137[2], worldMatrix[3] + _137[3]);
+        return _s1_b0.uMeshMatrix.mesh[instanceIdx].world * worldMatrix;
+    }
+    else
+    {
+        return _s1_b0.uMeshMatrix.mesh[instanceIdx].world;
+    }
+}
+
+uint GetPackFlatIndices(uint cameraIdx, uint instanceIdx)
+{
+    return (instanceIdx << uint(16)) | (cameraIdx & 65535u);
+}
+
+void main()
+{
+    DefaultMaterialGeneralDataStruct arg;
+    arg.indices = _s0_b1.uGeneralData.indices;
+    arg.viewportSizeInvViewportSize = _s0_b1.uGeneralData.viewportSizeInvViewportSize;
+    arg.sceneTimingData = _s0_b1.uGeneralData.sceneTimingData;
+    uint cameraIdx = GetUnpackCameraIndex(arg);
+    uint instanceIdx = GetInstanceIndex();
+    mat4 worldMatrix = getWorldMatrix();
+    outUv = inUv0;
+    outIndices = GetPackFlatIndices(cameraIdx, instanceIdx);
+    gl_Position = _s0_b0.uCameras[cameraIdx].viewProj * (worldMatrix * vec4(inPosition, 1.0));
+    if (_241)
+    {
+        gl_Position = vec4(gl_Position.x, gl_Position.y * CORE_FLIP_NDC, (gl_Position.z * 2.0) - gl_Position.w, gl_Position.w);
+    }
+}
+

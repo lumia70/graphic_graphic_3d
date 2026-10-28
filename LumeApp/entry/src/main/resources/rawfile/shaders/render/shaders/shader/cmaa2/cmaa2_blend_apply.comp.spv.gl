@@ -1,0 +1,84 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 32, local_size_y = 4, local_size_z = 1) in;
+
+struct ControlBufferStruct
+{
+    uint itemCount;
+    uint shapeCandidateCount;
+    uint blendLocationCount;
+    uint deferredBlendItemCount;
+};
+
+const ivec2 _154[4] = ivec2[](ivec2(0), ivec2(1, 0), ivec2(0, 1), ivec2(1));
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(binding = 11, std430) readonly buffer s0_b1
+{
+    ControlBufferStruct controlBuffer;
+} _s0_b1;
+
+layout(binding = 11, std430) readonly buffer s0_b2
+{
+    uint blendLocationList[];
+} _s0_b2;
+
+layout(binding = 11, std430) readonly buffer s0_b3
+{
+    uvec2 blendItemList[];
+} _s0_b3;
+
+layout(binding = 11, r32ui) uniform readonly uimage2D s0_b4;
+layout(binding = 11, r11f_g11f_b10f) uniform writeonly image2D s0_b0;
+
+vec3 UnpackColor(uint _packed)
+{
+    uint r11 = _packed & 2047u;
+    uint g11 = (_packed >> 11u) & 2047u;
+    uint b10 = (_packed >> 22u) & 1023u;
+    uvec3 exponent = uvec3(r11 >> 6u, g11 >> 6u, b10 >> 5u);
+    uvec3 mantissa = uvec3(r11 & 63u, g11 & 63u, b10 & 31u);
+    uvec3 f32exp = clamp((exponent + uvec3(127u)) - uvec3(15u), uvec3(0u), uvec3(255u));
+    uvec3 f32mant = uvec3(mantissa.x << 17u, mantissa.y << 17u, mantissa.z << 18u);
+    uvec3 f32bits = (f32exp << uvec3(23u)) | f32mant;
+    return vec3(uintBitsToFloat(f32bits.x), uintBitsToFloat(f32bits.y), uintBitsToFloat(f32bits.z));
+}
+
+void main()
+{
+    uint numCandidates = _s0_b1.controlBuffer.blendLocationCount;
+    uint currentCandidate = gl_GlobalInvocationID.x;
+    uint currentQuadOffsetXY = gl_LocalInvocationID.y;
+    if (currentCandidate >= numCandidates)
+    {
+        return;
+    }
+    uint pixelId = _s0_b2.blendLocationList[currentCandidate];
+    ivec2 quadPos = ivec2(int(pixelId >> uint(16)), int(pixelId & 65535u));
+    ivec2 pixelPosActual = (quadPos * ivec2(2)) + _154[currentQuadOffsetXY];
+    uint counterIdx = imageLoad(s0_b4, quadPos).x;
+    vec4 outColors = vec4(0.0);
+    for (uint ii = 0u; (counterIdx != 4294967295u) && (ii < 64u); ii++)
+    {
+        uint offsetXY = (counterIdx >> 30u) & 3u;
+        bool isComplexShape = ((counterIdx >> 26u) & 1u) != 0u;
+        uvec2 blendData = _s0_b3.blendItemList[counterIdx & 67108863u];
+        counterIdx = blendData.x;
+        if (offsetXY == currentQuadOffsetXY)
+        {
+            vec3 color = UnpackColor(blendData.y);
+            float weight = 0.800000011920928955078125 + (1.0 * float(isComplexShape));
+            outColors += vec4(color * weight, weight);
+        }
+    }
+    if (outColors.w == 0.0)
+    {
+        return;
+    }
+    imageStore(s0_b0, pixelPosActual, vec4(outColors.xyz / vec3(outColors.w), 1.0));
+}
+

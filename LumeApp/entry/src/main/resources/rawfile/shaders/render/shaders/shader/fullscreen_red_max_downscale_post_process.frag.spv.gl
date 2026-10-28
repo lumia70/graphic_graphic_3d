@@ -1,0 +1,48 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct LocalPostProcessStruct
+{
+    vec4 factors[16];
+};
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+
+uniform sampler2D s1_b1_s1_b0;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out float outColor;
+
+void main()
+{
+    float d0 = texture(s1_b1_s1_b0, inUv).x;
+    float d1 = textureOffset(s1_b1_s1_b0, inUv, ivec2(1, 0)).x;
+    float d2 = textureOffset(s1_b1_s1_b0, inUv, ivec2(0, 1)).x;
+    float d3 = textureOffset(s1_b1_s1_b0, inUv, ivec2(1)).x;
+    float depth = max(max(d0, d1), max(d2, d3));
+    outColor = depth;
+}
+

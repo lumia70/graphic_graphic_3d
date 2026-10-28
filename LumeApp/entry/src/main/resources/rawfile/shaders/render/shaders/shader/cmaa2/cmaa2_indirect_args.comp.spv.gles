@@ -1,0 +1,59 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct ControlBufferStruct
+{
+    uint itemCount;
+    uint shapeCandidateCount;
+    uint blendLocationCount;
+    uint deferredBlendItemCount;
+};
+
+struct DispatchIndirectCommand
+{
+    uint x;
+    uint y;
+    uint z;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+layout(binding = 11, std430) readonly buffer s0_b0
+{
+    ControlBufferStruct controlBuffer;
+} _s0_b0;
+
+layout(binding = 11, std430) writeonly buffer s0_b1
+{
+    DispatchIndirectCommand candidateDispatchBuffer;
+} _s0_b1;
+
+layout(binding = 11, std430) writeonly buffer s0_b2
+{
+    DispatchIndirectCommand applyDispatchBuffer;
+} _s0_b2;
+
+uint DivideRoundUp(uint value, uint divisor)
+{
+    return ((value + divisor) - 1u) / divisor;
+}
+
+void main()
+{
+    uint shapeCandidateCount = _s0_b0.controlBuffer.shapeCandidateCount;
+    uint candidateGroupsX = max(1u, DivideRoundUp(shapeCandidateCount, 128u));
+    _s0_b1.candidateDispatchBuffer.x = candidateGroupsX;
+    _s0_b1.candidateDispatchBuffer.y = 1u;
+    _s0_b1.candidateDispatchBuffer.z = 1u;
+    uint blendLocationCount = _s0_b0.controlBuffer.blendLocationCount;
+    uint applyGroupsX = max(1u, DivideRoundUp(blendLocationCount, 32u));
+    _s0_b2.applyDispatchBuffer.x = applyGroupsX;
+    _s0_b2.applyDispatchBuffer.y = 4u;
+    _s0_b2.applyDispatchBuffer.z = 1u;
+}
+

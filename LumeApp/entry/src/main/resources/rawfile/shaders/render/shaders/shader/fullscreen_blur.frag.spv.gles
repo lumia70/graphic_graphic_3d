@@ -1,0 +1,220 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+const float _112[3] = float[](0.0, 1.384615421295166015625, 3.23076915740966796875);
+const float _130[3] = float[](0.2270270287990570068359375, 0.3162162303924560546875, 0.0702702701091766357421875);
+const float _475[5] = float[](0.5, 0.125, 0.125, 0.125, 0.125);
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+const bool _569 = (CORE_POST_PROCESS_FLAGS == 1u);
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+const bool _599 = (CORE_POST_PROCESS_FLAGS == 2u);
+const bool _617 = (CORE_POST_PROCESS_FLAGS == 3u);
+const bool _638 = (CORE_POST_PROCESS_FLAGS == 4u);
+const bool _653 = (CORE_POST_PROCESS_FLAGS == 5u);
+const bool _674 = (CORE_POST_PROCESS_FLAGS == 6u);
+const bool _689 = (CORE_POST_PROCESS_FLAGS == 7u);
+const bool _703 = (CORE_POST_PROCESS_FLAGS == 0u);
+const bool _718 = (CORE_POST_PROCESS_FLAGS == 8u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform highp sampler2D s0_b1_s0_b0;
+
+layout(location = 0) out vec4 outColor;
+layout(location = 0) in vec2 inUv;
+
+float GaussianBlurR(vec2 fragCoord, vec2 uv, vec2 dir, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    float color = textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).x * 0.2270270287990570068359375;
+    for (int idx = 1; idx < 3; idx++)
+    {
+        vec2 currOffset = vec2(_112[idx]) * dir;
+        color += (textureLod(SPIRV_Cross_Combinedtexsampl, (fragCoord + currOffset) * invTexSize, 0.0).x * _130[idx]);
+        color += (textureLod(SPIRV_Cross_Combinedtexsampl, (fragCoord - currOffset) * invTexSize, 0.0).x * _130[idx]);
+    }
+    return color;
+}
+
+vec2 GaussianBlurRG(vec2 fragCoord, vec2 uv, vec2 dir, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec2 color = textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).xy * 0.2270270287990570068359375;
+    for (int idx = 1; idx < 3; idx++)
+    {
+        vec2 currOffset = vec2(_112[idx]) * dir;
+        color += (textureLod(SPIRV_Cross_Combinedtexsampl, (fragCoord + currOffset) * invTexSize, 0.0).xy * _130[idx]);
+        color += (textureLod(SPIRV_Cross_Combinedtexsampl, (fragCoord - currOffset) * invTexSize, 0.0).xy * _130[idx]);
+    }
+    return color;
+}
+
+vec3 GaussianBlurRGB(vec2 fragCoord, vec2 uv, vec2 dir, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec3 color = textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).xyz * 0.2270270287990570068359375;
+    for (int idx = 1; idx < 3; idx++)
+    {
+        vec2 currOffset = vec2(_112[idx]) * dir;
+        color += (textureLod(SPIRV_Cross_Combinedtexsampl, (fragCoord + currOffset) * invTexSize, 0.0).xyz * _130[idx]);
+        color += (textureLod(SPIRV_Cross_Combinedtexsampl, (fragCoord - currOffset) * invTexSize, 0.0).xyz * _130[idx]);
+    }
+    return color;
+}
+
+float GaussianBlurA(vec2 fragCoord, vec2 uv, vec2 dir, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    float alpha = textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).w * 0.2270270287990570068359375;
+    for (int idx = 1; idx < 3; idx++)
+    {
+        vec2 currOffset = vec2(_112[idx]) * dir;
+        float _358 = float(0);
+        alpha += (textureLod(SPIRV_Cross_Combinedtexsampl, invTexSize * _358, 0.0).w * _130[idx]);
+        float _374 = float(0);
+        alpha += (textureLod(SPIRV_Cross_Combinedtexsampl, invTexSize * _374, 0.0).w * _130[idx]);
+    }
+    return alpha;
+}
+
+vec3 SoftDownscaleRGB(vec2 fragCoord, vec2 uv, vec2 dir, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec2 ths = invTexSize * 0.5;
+    vec3 color = textureLod(SPIRV_Cross_Combinedtexsampl, uv + ths, 0.0).xyz * 0.5;
+    color = (textureLod(SPIRV_Cross_Combinedtexsampl, uv - ths, 0.0).xyz * 0.125) + color;
+    color = (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x + ths.x, uv.y - ths.y), 0.0).xyz * 0.125) + color;
+    color = (textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x - ths.x, uv.y + ths.y), 0.0).xyz * 0.125) + color;
+    color = (textureLod(SPIRV_Cross_Combinedtexsampl, uv + ths, 0.0).xyz * 0.125) + color;
+    return color;
+}
+
+vec4 DownscaleRGBA(vec2 fragCoord, vec2 uv, vec2 dir, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    return textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0);
+}
+
+vec4 DownscaleRGBADof(vec2 fragCoord, vec2 uv, vec2 dir, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec2 ths = invTexSize * 0.5;
+    vec4 color = vec4(0.0);
+    vec4 samples[5] = vec4[](textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0), textureLod(SPIRV_Cross_Combinedtexsampl, uv - ths, 0.0), textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x + ths.x, uv.y - ths.y), 0.0), textureLod(SPIRV_Cross_Combinedtexsampl, vec2(uv.x - ths.x, uv.y + ths.y), 0.0), textureLod(SPIRV_Cross_Combinedtexsampl, uv + ths, 0.0));
+    float weight = 0.0;
+    for (int i = 0; i < 5; i++)
+    {
+        weight += samples[i].w;
+    }
+    if (weight > 0.0)
+    {
+        for (int i_1 = 0; i_1 < 5; i_1++)
+        {
+            color += (samples[i_1] * _475[i_1]);
+        }
+    }
+    else
+    {
+        color = samples[0];
+    }
+    return color;
+}
+
+vec4 GaussianBlurRGBA(vec2 fragCoord, vec2 uv, vec2 dir, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec4 color = textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0) * 0.2270270287990570068359375;
+    for (int idx = 1; idx < 3; idx++)
+    {
+        vec2 currOffset = vec2(_112[idx]) * dir;
+        color += (textureLod(SPIRV_Cross_Combinedtexsampl, (fragCoord + currOffset) * invTexSize, 0.0) * _130[idx]);
+        color += (textureLod(SPIRV_Cross_Combinedtexsampl, (fragCoord - currOffset) * invTexSize, 0.0) * _130[idx]);
+    }
+    return color;
+}
+
+void main()
+{
+    if (_569)
+    {
+        outColor.x = GaussianBlurR(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+    }
+    else
+    {
+        if (_599)
+        {
+            vec2 _611 = GaussianBlurRG(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+            outColor.x = _611.x;
+            outColor.y = _611.y;
+        }
+        else
+        {
+            if (_617)
+            {
+                vec3 _629 = GaussianBlurRGB(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+                outColor.x = _629.x;
+                outColor.y = _629.y;
+                outColor.z = _629.z;
+            }
+            else
+            {
+                if (_638)
+                {
+                    outColor.x = GaussianBlurA(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+                }
+                else
+                {
+                    if (_653)
+                    {
+                        vec3 _665 = SoftDownscaleRGB(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+                        outColor.x = _665.x;
+                        outColor.y = _665.y;
+                        outColor.z = _665.z;
+                    }
+                    else
+                    {
+                        if (_674)
+                        {
+                            outColor = DownscaleRGBA(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+                        }
+                        else
+                        {
+                            if (_689)
+                            {
+                                outColor = DownscaleRGBADof(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+                            }
+                            else
+                            {
+                                if (_703)
+                                {
+                                    outColor = GaussianBlurRGBA(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+                                }
+                                else
+                                {
+                                    if (_718)
+                                    {
+                                        outColor = DownscaleRGBADof(gl_FragCoord.xy, inUv, CORE_PC_0.uPc.factor.xy, CORE_PC_0.uPc.viewportSizeInvSize.zw, s0_b1_s0_b0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

@@ -1,0 +1,186 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct PostProcessTonemapStruct
+{
+    vec4 texSizeInvTexSize;
+    uvec4 flags;
+    vec4 tonemap;
+    vec4 vignette;
+    vec4 colorFringe;
+    vec4 dither;
+    vec4 bloomParameters;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPushConstant
+{
+    PostProcessTonemapStruct uPc;
+};
+
+uniform uPushConstant CORE_PC_0;
+
+uniform highp sampler2D s0_b0_s0_b1;
+
+layout(location = 0) out vec4 outColor;
+layout(location = 0) in vec2 inUv;
+
+vec3 TonemapAces(vec3 x)
+{
+    return (x * ((x * 2.5099999904632568359375) + vec3(0.02999999932944774627685546875))) / ((x * ((x * 2.4300000667572021484375) + vec3(0.589999973773956298828125))) + vec3(0.14000000059604644775390625));
+}
+
+vec3 TonemapAcesFilmRec2020(vec3 x)
+{
+    float a = 15.80000019073486328125;
+    float b = 2.11999988555908203125;
+    float c = 1.2000000476837158203125;
+    float d = 5.9200000762939453125;
+    float e = 1.89999997615814208984375;
+    return (x * ((x * a) + vec3(b))) / ((x * ((x * c) + vec3(d))) + vec3(e));
+}
+
+float TonemapFilmic(float x)
+{
+    return (((x * ((0.1500000059604644775390625 * x) + 0.0500000007450580596923828125)) + 0.0040000001899898052215576171875) / ((x * ((0.1500000059604644775390625 * x) + 0.5)) + 0.0599999986588954925537109375)) - 0.066666670143604278564453125;
+}
+
+vec3 TonemapFilmic(vec3 x)
+{
+    vec3 curr = (((x * ((x * 0.1500000059604644775390625) + vec3(0.0500000007450580596923828125))) + vec3(0.0040000001899898052215576171875)) / ((x * ((x * 0.1500000059604644775390625) + vec3(0.5))) + vec3(0.0599999986588954925537109375))) - vec3(0.066666670143604278564453125);
+    float param = 11.19999980926513671875;
+    float whiteScale = 1.0 / TonemapFilmic(param);
+    return curr * vec3(whiteScale);
+}
+
+vec3 TonemapPbrNeutral(inout vec3 color)
+{
+    float x = min(color.x, min(color.y, color.z));
+    float _181;
+    if (x < 0.07999999821186065673828125)
+    {
+        _181 = x - ((6.25 * x) * x);
+    }
+    else
+    {
+        _181 = 0.039999999105930328369140625;
+    }
+    float offset = _181;
+    color -= vec3(offset);
+    float peak = max(color.x, max(color.y, color.z));
+    if (peak < 0.7599999904632568359375)
+    {
+        return color;
+    }
+    float newPeak = 1.0 - (0.057599999010562896728515625 / ((peak + 0.23999999463558197021484375) - 0.7599999904632568359375));
+    color *= (newPeak / peak);
+    float g = 1.0 - (1.0 / ((0.1500000059604644775390625 * (peak - newPeak)) + 1.0));
+    return mix(color, vec3(newPeak), vec3(g));
+}
+
+vec3 LinearToSrgb(vec3 linear)
+{
+    vec3 high = (pow(linear, vec3(0.41600000858306884765625)) * 1.05499994754791259765625) - vec3(0.054999999701976776123046875);
+    vec3 low = linear * 12.9200000762939453125;
+    bvec3 cutoff = lessThan(linear, vec3(0.003130800090730190277099609375));
+    return mix(high, low, cutoff);
+}
+
+void main()
+{
+    outColor = textureLod(s0_b0_s0_b1, inUv, 0.0);
+    if ((CORE_PC_0.uPc.flags.x & 16u) == 16u)
+    {
+        vec2 uvSize = CORE_PC_0.uPc.texSizeInvTexSize.zw;
+        vec4 fringeFactor = CORE_PC_0.uPc.colorFringe;
+        vec2 distUv = (inUv - vec2(0.5)) * 2.0;
+        mediump float chroma = (dot(distUv, distUv) * fringeFactor.y) * fringeFactor.x;
+        vec2 uvDistToImageCenter = uvSize * chroma;
+        mediump float chromaRed = textureLod(s0_b0_s0_b1, inUv - vec2(uvDistToImageCenter.x, uvDistToImageCenter.y), 0.0).x;
+        mediump float chromaBlue = textureLod(s0_b0_s0_b1, inUv + vec2(uvDistToImageCenter.x, uvDistToImageCenter.y), 0.0).z;
+        outColor.x = chromaRed;
+        outColor.z = chromaBlue;
+    }
+    if ((CORE_PC_0.uPc.flags.x & 1u) == 1u)
+    {
+        vec4 tonemapFactor = CORE_PC_0.uPc.tonemap;
+        float exposure = tonemapFactor.x;
+        vec3 x = outColor.xyz * exposure;
+        uint tonemapType = uint(tonemapFactor.w);
+        if (tonemapType == 0u)
+        {
+            vec3 param = x;
+            vec3 _370 = TonemapAces(param);
+            outColor.x = _370.x;
+            outColor.y = _370.y;
+            outColor.z = _370.z;
+        }
+        else
+        {
+            if (tonemapType == 1u)
+            {
+                vec3 param_1 = x;
+                vec3 _384 = TonemapAcesFilmRec2020(param_1);
+                outColor.x = _384.x;
+                outColor.y = _384.y;
+                outColor.z = _384.z;
+            }
+            else
+            {
+                if (tonemapType == 2u)
+                {
+                    vec3 param_2 = x * 6.0;
+                    vec3 _400 = TonemapFilmic(param_2);
+                    outColor.x = _400.x;
+                    outColor.y = _400.y;
+                    outColor.z = _400.z;
+                }
+                else
+                {
+                    if (tonemapType == 3u)
+                    {
+                        vec3 param_3 = x;
+                        vec3 _414 = TonemapPbrNeutral(param_3);
+                        outColor.x = _414.x;
+                        outColor.y = _414.y;
+                        outColor.z = _414.z;
+                    }
+                }
+            }
+        }
+    }
+    if ((CORE_PC_0.uPc.flags.x & 2u) == 2u)
+    {
+        vec2 uvVal = inUv * (vec2(1.0) - inUv.yx);
+        vec4 vignetteFactor = CORE_PC_0.uPc.vignette;
+        mediump float vignette = ((uvVal.x * uvVal.y) * vignetteFactor.x) * 40.0;
+        vignette = clamp(pow(vignette, vignetteFactor.y), 0.0, 1.0);
+        vec4 _455 = outColor;
+        vec3 _457 = _455.xyz * vignette;
+        outColor.x = _457.x;
+        outColor.y = _457.y;
+        outColor.z = _457.z;
+    }
+    if ((CORE_PC_0.uPc.flags.x & 8u) == 8u)
+    {
+        if (true)
+        {
+            vec3 _476 = LinearToSrgb(outColor.xyz);
+            outColor.x = _476.x;
+            outColor.y = _476.y;
+            outColor.z = _476.z;
+        }
+    }
+}
+

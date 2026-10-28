@@ -1,0 +1,61 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+layout(binding = 11, rgba16f) uniform writeonly highp image2D s0_b0;
+uniform highp sampler2D s0_b1_s0_b3;
+uniform highp sampler2D s0_b2_s0_b3;
+
+vec3 BloomUpscale(vec2 uv, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec2 ts = invTexSize * 2.0;
+    vec3 color = textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).xyz * 0.5;
+    color = (textureLod(SPIRV_Cross_Combinedtexsampl, uv - ts, 0.0).xyz * 0.125) + color;
+    color = (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(ts.x, -ts.y), 0.0).xyz * 0.125) + color;
+    color = (textureLod(SPIRV_Cross_Combinedtexsampl, uv + vec2(-ts.x, ts.y), 0.0).xyz * 0.125) + color;
+    color = (textureLod(SPIRV_Cross_Combinedtexsampl, uv + ts, 0.0).xyz * 0.125) + color;
+    return color;
+}
+
+vec3 BloomCombine(vec3 baseColor, vec3 bloomColor, vec4 bloomParameters)
+{
+    return baseColor + (bloomColor * bloomParameters.z);
+}
+
+void main()
+{
+    vec2 uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5)) * CORE_PC_0.uPc.viewportSizeInvSize.zw;
+    vec3 baseColor = textureLod(s0_b1_s0_b3, uv, 0.0).xyz;
+    vec2 param = uv;
+    vec2 param_1 = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+    vec3 bloomColor = BloomUpscale(param, param_1, s0_b2_s0_b3);
+    vec3 param_2 = baseColor;
+    vec3 param_3 = bloomColor;
+    vec4 param_4 = CORE_PC_0.uPc.factor;
+    vec3 finalColor = min(BloomCombine(param_2, param_3, param_4), vec3(64512.0));
+    imageStore(s0_b0, ivec2(gl_GlobalInvocationID.xy), vec4(finalColor, 1.0));
+}
+

@@ -1,0 +1,44 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+uniform highp sampler2D s0_b0;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out float outSsao;
+
+void main()
+{
+    vec2 texelSize = vec2(1.0) / vec2(textureSize(s0_b0, 0));
+    float result = 0.0;
+    float weightSum = 0.0;
+    float centerSample = texture(s0_b0, inUv).x;
+    result += (centerSample * 0.25);
+    weightSum += 0.25;
+    vec4 topLeft = textureGather(s0_b0, inUv + (vec2(-0.75) * texelSize));
+    result += ((((topLeft.x + topLeft.y) + topLeft.z) + topLeft.w) * 0.0625);
+    weightSum += 0.25;
+    vec4 topRight = textureGather(s0_b0, inUv + (vec2(0.75, -0.75) * texelSize));
+    result += ((((topRight.x + topRight.y) + topRight.z) + topRight.w) * 0.0625);
+    weightSum += 0.25;
+    vec4 bottomLeft = textureGather(s0_b0, inUv + (vec2(-0.75, 0.75) * texelSize));
+    result += ((((bottomLeft.x + bottomLeft.y) + bottomLeft.z) + bottomLeft.w) * 0.0625);
+    weightSum += 0.25;
+    vec4 bottomRight = textureGather(s0_b0, inUv + (vec2(0.75) * texelSize));
+    result += ((((bottomRight.x + bottomRight.y) + bottomRight.z) + bottomRight.w) * 0.0625);
+    weightSum += 0.25;
+    result += (texture(s0_b0, inUv + (vec2(0.0, -1.5) * texelSize)).x * 0.125);
+    result += (texture(s0_b0, inUv + (vec2(0.0, 1.5) * texelSize)).x * 0.125);
+    result += (texture(s0_b0, inUv + (vec2(-1.5, 0.0) * texelSize)).x * 0.125);
+    result += (texture(s0_b0, inUv + (vec2(1.5, 0.0) * texelSize)).x * 0.125);
+    weightSum += 0.5;
+    outSsao = result / weightSum;
+}
+

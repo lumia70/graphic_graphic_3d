@@ -1,0 +1,43 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+uniform sampler2D s0_b1;
+uniform sampler2D s0_b0;
+
+layout(location = 0) out float outDepth;
+layout(location = 0) in vec2 inUv;
+layout(location = 1) out vec4 outColor;
+
+float DownsampleDepth(vec2 uv, vec2 texelSize)
+{
+    vec2 halfTexel = texelSize * 0.5;
+    float depth0 = textureLod(s0_b1, uv + vec2(-halfTexel.x, -halfTexel.y), 0.0).x;
+    float depth1 = textureLod(s0_b1, uv + vec2(halfTexel.x, -halfTexel.y), 0.0).x;
+    float depth2 = textureLod(s0_b1, uv + vec2(-halfTexel.x, halfTexel.y), 0.0).x;
+    float depth3 = textureLod(s0_b1, uv + vec2(halfTexel.x, halfTexel.y), 0.0).x;
+    return min(min(depth0, depth1), min(depth2, depth3));
+}
+
+vec4 DownsampleColor(vec2 uv, vec2 texelSize)
+{
+    vec2 halfTexel = texelSize * 0.5;
+    vec4 color0 = textureLod(s0_b0, uv + vec2(-halfTexel.x, -halfTexel.y), 0.0);
+    vec4 color1 = textureLod(s0_b0, uv + vec2(halfTexel.x, -halfTexel.y), 0.0);
+    vec4 color2 = textureLod(s0_b0, uv + vec2(-halfTexel.x, halfTexel.y), 0.0);
+    vec4 color3 = textureLod(s0_b0, uv + vec2(halfTexel.x, halfTexel.y), 0.0);
+    return (((color0 + color1) + color2) + color3) * 0.25;
+}
+
+void main()
+{
+    vec2 texelSize = vec2(1.0) / vec2(textureSize(s0_b0, 0));
+    outDepth = DownsampleDepth(inUv, texelSize);
+    outColor = DownsampleColor(inUv, texelSize);
+}
+

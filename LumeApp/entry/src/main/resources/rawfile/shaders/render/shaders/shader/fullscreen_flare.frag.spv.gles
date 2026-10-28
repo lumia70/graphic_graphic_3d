@@ -1,0 +1,164 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+const float _460[5] = float[](7.0, 9.0, 12.0, 15.0, 8.5);
+
+struct PushConstantStruct
+{
+    vec4 texSizeInvTexSize;
+    vec4 rt;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPushConstant
+{
+    PushConstantStruct uPc;
+};
+
+uniform uPushConstant CORE_PC_0;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+float RandomDither(vec2 st)
+{
+    return fract(sin(dot(st, vec2(12.98980045318603515625, 78.233001708984375))) * 43758.546875);
+}
+
+float Noise(vec2 t)
+{
+    vec2 param = t;
+    return RandomDither(param);
+}
+
+float Noise(float t)
+{
+    vec2 param = vec2(t);
+    return RandomDither(param);
+}
+
+float RegularPolygon(vec2 p, int N)
+{
+    float a = atan(p.x, p.y) + 0.20000000298023223876953125;
+    float b = 6.2831897735595703125 / float(N);
+    return smoothstep(0.5, 0.5099999904632568359375, cos((floor(0.5 + (a / b)) * b) - a) * length(p));
+}
+
+float RenderHexagon(vec2 uv, vec2 lightPos, vec2 offsetFromCenter, float hexagonIntervalDist, float size)
+{
+    vec2 hexagonCoord = ((uv * size) + ((lightPos * hexagonIntervalDist) * size)) + offsetFromCenter;
+    vec2 param = hexagonCoord;
+    int param_1 = 6;
+    float hexValue = 0.00999999977648258209228515625 - RegularPolygon(param, param_1);
+    hexValue = max(hexValue, 0.0);
+    return hexValue;
+}
+
+float RenderRing(float r, float offsetFromCenter, float fade)
+{
+    float radiusVal = (0.001000000047497451305389404296875 - pow(r - offsetFromCenter, 1.0 / fade)) + sin(r * 30.0);
+    radiusVal = max(radiusVal, 0.0);
+    return radiusVal;
+}
+
+vec3 Lensflare(vec2 uv, vec2 pos, float time)
+{
+    vec2 main = pos - uv;
+    vec2 uvd = uv * length(uv);
+    float ang = atan(main.x, main.y);
+    float dist = length(main);
+    dist = pow(dist, 0.100000001490116119384765625);
+    vec2 param = vec2(ang * 16.0, dist * 32.0);
+    float n = Noise(param);
+    float f0 = min(1.0 / ((length(uv - pos) * 16.0) + 1.0), 0.300000011920928955078125);
+    float param_1 = (sin((ang * 2.0) + pos.x) * 4.0) - cos(((ang * 3.0) + pos.y) + time);
+    f0 += (f0 * (((sin(Noise(param_1) * 16.0) * 0.100000001490116119384765625) + (dist * 0.100000001490116119384765625)) + 0.800000011920928955078125));
+    float f1 = max(0.00999999977648258209228515625 - pow(length(uv + (pos * 1.2000000476837158203125)), 1.89999997615814208984375), 0.0) * 7.0;
+    float f2 = max(1.0 / (1.0 + (32.0 * pow(length(uvd + (pos * 0.800000011920928955078125)), 2.0))), 0.0) * 0.25;
+    float f22 = max(1.0 / (1.0 + (32.0 * pow(length(uvd + (pos * 0.85000002384185791015625)), 2.0))), 0.0) * 0.23000000417232513427734375;
+    float f23 = max(1.0 / (1.0 + (32.0 * pow(length(uvd + (pos * 0.89999997615814208984375)), 2.0))), 0.0) * 0.20999999344348907470703125;
+    vec2 uvx = mix(uv, uvd, vec2(-0.5));
+    float f4 = max(0.00999999977648258209228515625 - pow(length(uvx + (pos * 0.4000000059604644775390625)), 2.400000095367431640625), 0.0) * 6.0;
+    float f42 = max(0.00999999977648258209228515625 - pow(length(uvx + (pos * 0.449999988079071044921875)), 2.400000095367431640625), 0.0) * 5.0;
+    float f43 = max(0.00999999977648258209228515625 - pow(length(uvx + (pos * 0.5)), 2.400000095367431640625), 0.0) * 3.0;
+    uvx = mix(uv, uvd, vec2(-0.4000000059604644775390625));
+    float f5 = max(0.00999999977648258209228515625 - pow(length(uvx + (pos * 0.20000000298023223876953125)), 5.5), 0.0) * 2.0;
+    float f52 = max(0.00999999977648258209228515625 - pow(length(uvx + (pos * 0.4000000059604644775390625)), 5.5), 0.0) * 2.0;
+    float f53 = max(0.00999999977648258209228515625 - pow(length(uvx + (pos * 0.60000002384185791015625)), 5.5), 0.0) * 2.0;
+    uvx = mix(uv, uvd, vec2(-0.5));
+    float f6 = max(0.00999999977648258209228515625 - pow(length(uvx - (pos * 0.300000011920928955078125)), 1.60000002384185791015625), 0.0) * 6.0;
+    float f62 = max(0.00999999977648258209228515625 - pow(length(uvx - (pos * 0.324999988079071044921875)), 1.60000002384185791015625), 0.0) * 3.0;
+    float f63 = max(0.00999999977648258209228515625 - pow(length(uvx - (pos * 0.3499999940395355224609375)), 1.60000002384185791015625), 0.0) * 5.0;
+    vec3 c = vec3(0.0);
+    c.x += (((f2 + f4) + f5) + f6);
+    c.y += (((f22 + f42) + f52) + f62);
+    c.z += (((f23 + f43) + f53) + f63);
+    c = (c * 1.2999999523162841796875) - vec3(length(uvd) * 0.0500000007450580596923828125);
+    c += (vec3(f0) * 0.1500000059604644775390625);
+    for (int i = 0; i < 5; i++)
+    {
+        vec2 hexagon_offset = (((-pos) * vec2(1.5)) * float(i)) + (pos * 1.2200000286102294921875);
+        float hexagon_size = 11.0 - (2.0 * float(i));
+        float hexagon_fade = 0.25 * pow(float(i), 2.5);
+        vec2 param_2 = uv;
+        vec2 param_3 = -pos;
+        vec2 param_4 = -hexagon_offset;
+        float param_5 = dist;
+        float param_6 = _460[i];
+        float hexagon = RenderHexagon(param_2, param_3, param_4, param_5, param_6) * hexagon_fade;
+        c += vec3(hexagon);
+    }
+    if (true)
+    {
+        int i_1 = 0;
+        float size = 0.4000000059604644775390625;
+        float ring_fade = 140.0;
+        vec2 ring_offset = ((-pos) * vec2(2.5)) * float(i_1);
+        float ring_size = (size * 5.0) * float(i_1);
+        float lt_coord = length((uv - pos) - ring_offset);
+        float ring_radius = lt_coord + ring_size;
+        float param_7 = ring_radius;
+        float param_8 = ring_size;
+        float param_9 = ring_fade;
+        float ring = RenderRing(param_7, param_8, param_9);
+        c += vec3(ring);
+    }
+    return c;
+}
+
+vec3 ColorModifier(vec3 color, float factor, float factor2)
+{
+    float w = (color.x + color.y) + color.z;
+    return mix(color, vec3(w) * factor, vec3(w * factor2));
+}
+
+void main()
+{
+    vec2 aspectRatio = vec2(CORE_PC_0.uPc.rt.x / CORE_PC_0.uPc.rt.y, 1.0);
+    float iTime = CORE_PC_0.uPc.texSizeInvTexSize.x;
+    vec2 rtSize = CORE_PC_0.uPc.rt.xy;
+    vec2 projectSunPos = CORE_PC_0.uPc.texSizeInvTexSize.yz;
+    vec2 param = (inUv - vec2(0.5)) * aspectRatio;
+    vec2 param_1 = (projectSunPos - vec2(0.5)) * aspectRatio;
+    float param_2 = iTime;
+    vec3 c = Lensflare(param, param_1, param_2);
+    vec3 color = vec3(1.39999997615814208984375, 1.2000000476837158203125, 1.0) * c;
+    vec2 param_3 = inUv;
+    color -= vec3(Noise(param_3) * 0.014999999664723873138427734375);
+    vec3 param_4 = color;
+    float param_5 = 0.5;
+    float param_6 = 0.100000001490116119384765625;
+    color = ColorModifier(param_4, param_5, param_6);
+    vec2 center = CORE_PC_0.uPc.rt.xy * 0.5;
+    vec4 guides = vec4(0.0);
+    float intensity = CORE_PC_0.uPc.rt.z;
+    outColor = guides + (vec4(color, 0.0) * intensity);
+}
+

@@ -1,0 +1,177 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct LocalPostProcessStruct
+{
+    vec4 factors[16];
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform sampler2D s0_b0_s0_b1;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+float GetFxaaSharpness(uint sharpness)
+{
+    if (sharpness == 0u)
+    {
+        return 2.0;
+    }
+    else
+    {
+        if (sharpness == 1u)
+        {
+            return 4.0;
+        }
+        else
+        {
+            return 8.0;
+        }
+    }
+}
+
+vec2 GetFxaaThreshold(uint quality)
+{
+    if (quality == 0u)
+    {
+        return vec2(0.333000004291534423828125, 0.083300001919269561767578125);
+    }
+    else
+    {
+        if (quality == 1u)
+        {
+            return vec2(0.125, 0.031199999153614044189453125);
+        }
+        else
+        {
+            return vec2(0.063000001013278961181640625, 0.0625);
+        }
+    }
+}
+
+float FxaaCompLuma(vec4 rgba)
+{
+    return rgba.y;
+}
+
+vec4 FxaaPixelShader(vec2 fragCoord, vec4 neighborCoords, vec2 invFrameSize, vec4 invFrameOpt, vec4 invFrameOpt2, vec4 console360InvFrameOpt2, float subpixelQuality, float edgeThresholdQuality, float edgeThresholdMinQuality, float edgeSharpness, float edgeThreshold, float edgeThresholdMin, vec4 console360ConstDir, sampler2D SPIRV_Cross_Combinedtexturesamp)
+{
+    vec4 param = textureLod(SPIRV_Cross_Combinedtexturesamp, neighborCoords.xy, 0.0);
+    float lumaNw = FxaaCompLuma(param);
+    vec4 param_1 = textureLod(SPIRV_Cross_Combinedtexturesamp, neighborCoords.xw, 0.0);
+    float lumaSw = FxaaCompLuma(param_1);
+    vec4 param_2 = textureLod(SPIRV_Cross_Combinedtexturesamp, neighborCoords.zy, 0.0);
+    float lumaNe = FxaaCompLuma(param_2);
+    vec4 param_3 = textureLod(SPIRV_Cross_Combinedtexturesamp, neighborCoords.zw, 0.0);
+    float lumaSe = FxaaCompLuma(param_3);
+    vec4 colorM = textureLod(SPIRV_Cross_Combinedtexturesamp, fragCoord, 0.0);
+    float lumaM = colorM.y;
+    float lumaMaxNwSw = max(lumaNw, lumaSw);
+    float lumaMinNwSw = min(lumaNw, lumaSw);
+    float lumaMaxNeSe = max(lumaNe, lumaSe);
+    float lumaMinNeSe = min(lumaNe, lumaSe);
+    float lumaMax = max(lumaMaxNeSe, lumaMaxNwSw);
+    float lumaMin = min(lumaMinNeSe, lumaMinNwSw);
+    float lumaMaxScaled = lumaMax * edgeThreshold;
+    float lumaMinM = min(lumaMin, lumaM);
+    float lumaMaxScaledClamped = max(edgeThresholdMin, lumaMaxScaled);
+    float lumaMaxM = max(lumaMax, lumaM);
+    float dirSwMinusNe = lumaSw - lumaNe;
+    dirSwMinusNe += 0.001953125;
+    float lumaRange = lumaMaxM - lumaMinM;
+    float dirSeMinusNw = lumaSe - lumaNw;
+    if (lumaRange < lumaMaxScaledClamped)
+    {
+        return colorM;
+    }
+    vec2 edgeDir;
+    edgeDir.x = dirSwMinusNe + dirSeMinusNw;
+    edgeDir.y = dirSwMinusNe - dirSeMinusNw;
+    vec2 normEdgeDir = normalize(edgeDir);
+    vec4 colorN1 = textureLod(SPIRV_Cross_Combinedtexturesamp, fragCoord - (normEdgeDir * invFrameOpt.zw), 0.0);
+    vec4 colorP1 = textureLod(SPIRV_Cross_Combinedtexturesamp, fragCoord + (normEdgeDir * invFrameOpt.zw), 0.0);
+    float dirAbsMinTimesC = (max(abs(normEdgeDir.x), abs(normEdgeDir.y)) * edgeSharpness) * 0.014999999664723873138427734375;
+    vec2 scaledEdgeDir = normEdgeDir * min(lumaRange / dirAbsMinTimesC, 3.0);
+    vec4 colorN2 = textureLod(SPIRV_Cross_Combinedtexturesamp, fragCoord - (scaledEdgeDir * invFrameOpt2.zw), 0.0);
+    vec4 colorP2 = textureLod(SPIRV_Cross_Combinedtexturesamp, fragCoord + (scaledEdgeDir * invFrameOpt2.zw), 0.0);
+    vec4 blendedA = colorN1 + colorP1;
+    vec4 blendedB = ((colorN2 + colorP2) * 0.25) + (blendedA * 0.25);
+    bool _257 = blendedB.y < lumaMin;
+    bool _265;
+    if (!_257)
+    {
+        _265 = blendedB.y > lumaMax;
+    }
+    else
+    {
+        _265 = _257;
+    }
+    bool useTwoTap = _265;
+    if (useTwoTap)
+    {
+        vec3 _273 = blendedA.xyz * 0.5;
+        blendedB.x = _273.x;
+        blendedB.y = _273.y;
+        blendedB.z = _273.z;
+    }
+    blendedB = mix(blendedB, colorM, vec4(0.25));
+    return blendedB;
+}
+
+void main()
+{
+    uint sharpness = uint(CORE_PC_0.uPc.factor.x + 0.5);
+    float fxaaSharpness = GetFxaaSharpness(sharpness);
+    uint quality = uint(CORE_PC_0.uPc.factor.y + 0.5);
+    vec2 fxaaThreshold = GetFxaaThreshold(quality);
+    vec2 textureSizeInv = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+    vec2 texelCenter = inUv;
+    vec2 param = texelCenter;
+    vec4 param_1 = vec4(texelCenter - (textureSizeInv * 0.5), texelCenter + (textureSizeInv * 0.5));
+    vec2 param_2 = vec2(0.0);
+    vec4 param_3 = vec4(-textureSizeInv, textureSizeInv);
+    vec4 param_4 = vec4(-textureSizeInv, textureSizeInv) * 2.0;
+    vec4 param_5 = vec4(0.0);
+    float param_6 = 0.0;
+    float param_7 = 0.0;
+    float param_8 = 0.0;
+    float param_9 = fxaaSharpness;
+    float param_10 = fxaaThreshold.x;
+    float param_11 = fxaaThreshold.y;
+    vec4 param_12 = vec4(0.0);
+    vec4 aaPixel = FxaaPixelShader(param, param_1, param_2, param_3, param_4, param_5, param_6, param_7, param_8, param_9, param_10, param_11, param_12, s0_b0_s0_b1);
+    outColor = aaPixel;
+}
+

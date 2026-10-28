@@ -3622,10 +3622,13 @@ void RenderSystem::UpdateSingleMaterial(const Entity matEntity, const MaterialCo
 
 void RenderSystem::HandleModifiedMeshes() noexcept
 {
+    PLUGIN_LOG_E("DIAG HandleModifiedMeshes: count=%zu dsMaterial=%d",
+        meshModifiedEvents_.size(), dsMaterial_ ? 1 : 0);
     vector<uint64_t> additionalMaterials;
     for (const auto& entRef : meshModifiedEvents_) {
         auto meshHandle = meshMgr_->Read(entRef);
         if (!meshHandle) {
+            PLUGIN_LOG_E("DIAG HandleModifiedMeshes: entity 0x%llx - no mesh handle", (unsigned long long)entRef.id);
             continue;
         }
 
@@ -3671,6 +3674,8 @@ void RenderSystem::HandleModifiedMeshes() noexcept
             writeRef.drawCommand.firstInstance = readRef.firstInstance;
         }
         dsMaterial_->UpdateMeshData(md.meshId, md);
+        PLUGIN_LOG_E("DIAG HandleModifiedMeshes: registered meshId=0x%llx submeshes=%zu",
+            (unsigned long long)md.meshId, md.submeshes.size());
     }
     meshModifiedEvents_.clear();
 }

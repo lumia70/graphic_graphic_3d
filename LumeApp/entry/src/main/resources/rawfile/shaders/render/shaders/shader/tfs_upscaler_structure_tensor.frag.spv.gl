@@ -1,0 +1,123 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+struct UpscalePushConstantStruct
+{
+    vec4 inputSize;
+    vec4 outputSize;
+    float smoothScale;
+    float padding[3];
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPushConstantBlock
+{
+    UpscalePushConstantStruct uPc;
+};
+
+uniform uPushConstantBlock CORE_PC_0;
+
+uniform sampler2D s0_b0_s0_b1;
+
+layout(location = 0) in vec2 vTexCoord;
+layout(location = 0) out vec4 tensorData;
+
+void main()
+{
+    bool _32 = any(greaterThanEqual(gl_FragCoord.xy, CORE_PC_0.uPc.inputSize.xy + vec2(1.0)));
+    bool _42;
+    if (!_32)
+    {
+        _42 = any(lessThan(gl_FragCoord.xy, vec2(-1.0)));
+    }
+    else
+    {
+        _42 = _32;
+    }
+    if (_42)
+    {
+        return;
+    }
+    mat2 accumulatedTensor = mat2(vec2(0.0), vec2(0.0));
+    float totalWeight = 0.0;
+    vec2 offsetSamples[9] = vec2[](textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(-1)).xy, textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(0, -1)).xy, textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(1, -1)).xy, textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(-1, 0)).xy, textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(0)).xy, textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(1, 0)).xy, textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(-1, 1)).xy, textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(0, 1)).xy, textureOffset(s0_b0_s0_b1, vTexCoord, ivec2(1)).xy);
+    mat2 localTensor;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int idx = ((dy + 1) * 3) + (dx + 1);
+            vec2 sampleCoord = gl_FragCoord.xy + vec2(float(dx), float(dy));
+            bool _171 = all(greaterThanEqual(sampleCoord, vec2(0.0)));
+            bool _180;
+            if (_171)
+            {
+                _180 = all(lessThan(sampleCoord, CORE_PC_0.uPc.inputSize.xy));
+            }
+            else
+            {
+                _180 = _171;
+            }
+            if (!_180)
+            {
+                continue;
+            }
+            vec2 gradient = offsetSamples[idx];
+            localTensor[0].x = gradient.x * gradient.x;
+            localTensor[0].y = gradient.x * gradient.y;
+            localTensor[1].x = gradient.x * gradient.y;
+            localTensor[1].y = gradient.y * gradient.y;
+            float dist = length(vec2(float(dx), float(dy)));
+            float weight = exp((-dist) * dist);
+            mat2 _231 = localTensor * weight;
+            accumulatedTensor = mat2(accumulatedTensor[0] + _231[0], accumulatedTensor[1] + _231[1]);
+            totalWeight += weight;
+        }
+    }
+    mat2 _250;
+    if (totalWeight > 0.0)
+    {
+        _250 = accumulatedTensor * (1.0 / totalWeight);
+    }
+    else
+    {
+        _250 = mat2(vec2(0.0), vec2(0.0));
+    }
+    mat2 tensor = _250;
+    vec2 _261 = vec2(9.9999999747524270787835121154785e-07);
+    tensor = mat2(tensor[0] + _261, tensor[1] + _261);
+    float trace = tensor[0].x + tensor[1].y;
+    float det = determinant(tensor);
+    float discriminant = max((trace * trace) - (4.0 * det), 0.0);
+    float sqrtDisc = sqrt(discriminant);
+    float lambda1 = (trace + sqrtDisc) * 0.5;
+    float lambda2 = (trace - sqrtDisc) * 0.5;
+    float edgeStrength = lambda1 - lambda2;
+    float coherence = (lambda1 - lambda2) / ((lambda1 + lambda2) + 9.9999999747524270787835121154785e-07);
+    float principalAngle = 0.0;
+    float offDiagMag = abs(tensor[0].y);
+    float diagDiff = tensor[0].x - tensor[1].y;
+    if (offDiagMag > max(9.9999999747524270787835121154785e-07, abs(diagDiff) * 0.100000001490116119384765625))
+    {
+        principalAngle = 0.5 * atan(2.0 * tensor[0].y, diagDiff);
+    }
+    else
+    {
+        if (abs(diagDiff) > 9.9999999747524270787835121154785e-07)
+        {
+            principalAngle = (tensor[0].x > tensor[1].y) ? 0.0 : 1.57079637050628662109375;
+        }
+        else
+        {
+            principalAngle = 0.0;
+        }
+    }
+    float isotropy = clamp(lambda2 / (lambda1 + 9.9999999747524270787835121154785e-07), 0.0, 1.0);
+    tensorData = vec4(principalAngle, coherence, edgeStrength, isotropy);
+}
+

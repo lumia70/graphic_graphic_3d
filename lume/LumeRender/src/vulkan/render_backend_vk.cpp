@@ -423,6 +423,14 @@ bool RenderBackendVk::Present()
                 waitSemaphores.push_back(info.presentSemaphore);
             }
         }
+        static uint32_t sPresentCount = 0;
+        sPresentCount++;
+        if (sPresentCount <= 3U) {
+            PLUGIN_LOG_E("DIAG vkQueuePresentKHR: swapCount=%u waitSem=%u imgIdx=%u layoutChange=%d",
+                (unsigned)vkSwapchains.size(), (unsigned)waitSemaphores.size(),
+                vkSwapImageIndices.empty() ? 999U : vkSwapImageIndices[0],
+                presentationData_.infos.empty() ? -1 : (int)presentationData_.infos[0].presentationLayoutChangeNeeded);
+        }
 
         const VkPresentInfoKHR presentInfo{
             VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,            // sType
@@ -437,7 +445,13 @@ bool RenderBackendVk::Present()
 
         const LowLevelGpuQueueVk lowLevelQueue = deviceVk_.GetPresentationGpuQueue();
         const VkResult result = vkQueuePresentKHR(lowLevelQueue.queue, &presentInfo);
+        if (sPresentCount <= 3U) {
+            PLUGIN_LOG_E("DIAG vkQueuePresentKHR result=%d", (int)result);
+        }
         presentOk = CheckPresentResult(result);
+    } else {
+        static bool sOnce = false;
+        if (!sOnce) { sOnce = true; PLUGIN_LOG_E("DIAG: vkSwapchains EMPTY, present skipped"); }
     }
 #if (RENDER_PERF_ENABLED == 1)
     commonCpuTimers_.present.End();

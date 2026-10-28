@@ -1,0 +1,63 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 11, r11f_g11f_b10f) uniform writeonly image2DArray s0_b1;
+uniform sampler2DArray s0_b0;
+
+float CalcWeight(float u, float v)
+{
+    float val = ((u * u) + (v * v)) + 1.0;
+    return val * sqrt(val);
+}
+
+void main()
+{
+    ivec3 gid = ivec3(gl_GlobalInvocationID);
+    ivec3 loResSize = imageSize(s0_b1);
+    bool _53 = any(greaterThanEqual(gid.xy, loResSize.xy));
+    bool _64;
+    if (!_53)
+    {
+        _64 = uint(gid.z) > 5u;
+    }
+    else
+    {
+        _64 = _53;
+    }
+    if (_64)
+    {
+        return;
+    }
+    uint face = uint(gid.z);
+    ivec2 srcBase = gid.xy * ivec2(2);
+    vec4 c00 = texelFetch(s0_b0, ivec3(srcBase + ivec2(0), int(face)), 0);
+    vec4 c10 = texelFetch(s0_b0, ivec3(srcBase + ivec2(1, 0), int(face)), 0);
+    vec4 c01 = texelFetch(s0_b0, ivec3(srcBase + ivec2(0, 1), int(face)), 0);
+    vec4 c11 = texelFetch(s0_b0, ivec3(srcBase + ivec2(1), int(face)), 0);
+    float invRes = 1.0 / float(loResSize.x);
+    float u0 = ((((float(gid.x) * 2.0) + 1.0) - 0.75) * invRes) - 1.0;
+    float u1 = ((((float(gid.x) * 2.0) + 1.0) + 0.75) * invRes) - 1.0;
+    float v0 = ((((float(gid.y) * 2.0) + 1.0) - 0.75) * (-invRes)) + 1.0;
+    float v1 = ((((float(gid.y) * 2.0) + 1.0) + 0.75) * (-invRes)) + 1.0;
+    float param = u0;
+    float param_1 = v0;
+    float weights[4];
+    weights[0] = CalcWeight(param, param_1);
+    float param_2 = u1;
+    float param_3 = v0;
+    weights[1] = CalcWeight(param_2, param_3);
+    float param_4 = u0;
+    float param_5 = v1;
+    weights[2] = CalcWeight(param_4, param_5);
+    float param_6 = u1;
+    float param_7 = v1;
+    weights[3] = CalcWeight(param_6, param_7);
+    float wsum = 0.5 / (((weights[0] + weights[1]) + weights[2]) + weights[3]);
+    for (int i = 0; i < 4; i++)
+    {
+        weights[i] = (weights[i] * wsum) + 0.125;
+    }
+    vec4 color = (((c00 * weights[0]) + (c10 * weights[1])) + (c01 * weights[2])) + (c11 * weights[3]);
+    imageStore(s0_b1, gid, color);
+}
+

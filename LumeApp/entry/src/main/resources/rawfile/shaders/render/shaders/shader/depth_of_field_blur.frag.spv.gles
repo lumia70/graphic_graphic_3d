@@ -1,0 +1,96 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct DofConfig
+{
+    vec4 factors0;
+    vec4 factors1;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+layout(std140) uniform s0_b2
+{
+    DofConfig uLocalData;
+} _s0_b2;
+
+uniform highp sampler2D s0_b1;
+uniform highp sampler2D s0_b0;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outNearColor;
+layout(location = 1) out vec4 outFarColor;
+
+float LinearDepth(float depth, float near, float far)
+{
+    return (far * near) / (((near - far) * depth) + far);
+}
+
+void main()
+{
+    mediump float depth = texture(s0_b1, inUv, 0.0).x;
+    float param = depth;
+    float param_1 = _s0_b2.uLocalData.factors1.z;
+    float param_2 = _s0_b2.uLocalData.factors1.w;
+    float linearDepth = LinearDepth(param, param_1, param_2);
+    float nearTransitionStart = _s0_b2.uLocalData.factors0.x;
+    float focusStart = _s0_b2.uLocalData.factors0.y;
+    float focusEnd = _s0_b2.uLocalData.factors0.z;
+    float farTransitionEnd = _s0_b2.uLocalData.factors0.w;
+    float nearTransitionRange = focusStart - nearTransitionStart;
+    float farTransitionRange = farTransitionEnd - focusEnd;
+    float nearBlur = _s0_b2.uLocalData.factors1.x;
+    float farBlur = _s0_b2.uLocalData.factors1.y;
+    vec4 color = textureLod(s0_b0, inUv, 0.0);
+    float coc;
+    if (linearDepth < nearTransitionStart)
+    {
+        coc = -1.0;
+    }
+    else
+    {
+        if (linearDepth < focusStart)
+        {
+            coc = (linearDepth - focusStart) / nearTransitionRange;
+        }
+        else
+        {
+            if (linearDepth < focusEnd)
+            {
+                coc = 0.0;
+            }
+            else
+            {
+                if (linearDepth < farTransitionEnd)
+                {
+                    coc = (linearDepth - focusEnd) / farTransitionRange;
+                }
+                else
+                {
+                    coc = 1.0;
+                }
+            }
+        }
+    }
+    outNearColor.w = (-1.0) * coc;
+    outNearColor.x = color.xyz.x;
+    outNearColor.y = color.xyz.y;
+    outNearColor.z = color.xyz.z;
+    outFarColor.w = coc;
+    outFarColor.x = color.xyz.x;
+    outFarColor.y = color.xyz.y;
+    outFarColor.z = color.xyz.z;
+}
+

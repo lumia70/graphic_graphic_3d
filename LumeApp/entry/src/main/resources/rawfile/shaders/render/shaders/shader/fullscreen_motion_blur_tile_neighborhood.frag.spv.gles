@@ -1,0 +1,125 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+const bool _240 = (CORE_POST_PROCESS_FLAGS == 1u);
+const bool _249 = (CORE_POST_PROCESS_FLAGS == 2u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+uniform highp sampler2D s0_b0;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+float SqrMagnitude(vec2 vec)
+{
+    return (vec.x * vec.x) + (vec.y * vec.y);
+}
+
+void GetMaxHorizontal(vec2 uv, out vec2 velocity)
+{
+    vec2 velocities[5];
+    velocities[0] = textureLodOffset(s0_b0, uv, 0.0, ivec2(-2, 0)).xy;
+    velocities[1] = textureLodOffset(s0_b0, uv, 0.0, ivec2(-1, 0)).xy;
+    velocities[2] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0)).xy;
+    velocities[3] = textureLodOffset(s0_b0, uv, 0.0, ivec2(1, 0)).xy;
+    velocities[4] = textureLodOffset(s0_b0, uv, 0.0, ivec2(2, 0)).xy;
+    velocity = vec2(0.0);
+    float sqrMagnitude = 0.0;
+    for (uint idx = 0u; idx < 5u; idx++)
+    {
+        vec2 vel = velocities[idx];
+        float sqrMgn = SqrMagnitude(vel);
+        if (sqrMgn > sqrMagnitude)
+        {
+            velocity = vel;
+            sqrMagnitude = sqrMgn;
+        }
+    }
+}
+
+void GetMaxVertical(vec2 uv, out vec2 velocity)
+{
+    vec2 velocities[5];
+    velocities[0] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0, -2)).xy;
+    velocities[1] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0, -1)).xy;
+    velocities[2] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0)).xy;
+    velocities[3] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0, 1)).xy;
+    velocities[4] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0, 2)).xy;
+    velocity = vec2(0.0);
+    float sqrMagnitude = 0.0;
+    for (uint idx = 0u; idx < 5u; idx++)
+    {
+        vec2 vel = velocities[idx];
+        float sqrMgn = SqrMagnitude(vel);
+        if (sqrMgn > sqrMagnitude)
+        {
+            velocity = vel;
+            sqrMagnitude = sqrMgn;
+        }
+    }
+}
+
+void GetMaxAround(vec2 uv, out vec2 velocity)
+{
+    vec2 velocities[9];
+    velocities[0] = textureLodOffset(s0_b0, uv, 0.0, ivec2(-1)).xy;
+    velocities[1] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0, -1)).xy;
+    velocities[2] = textureLodOffset(s0_b0, uv, 0.0, ivec2(1, -1)).xy;
+    velocities[3] = textureLodOffset(s0_b0, uv, 0.0, ivec2(-1, 0)).xy;
+    velocities[4] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0)).xy;
+    velocities[5] = textureLodOffset(s0_b0, uv, 0.0, ivec2(1, 0)).xy;
+    velocities[6] = textureLodOffset(s0_b0, uv, 0.0, ivec2(-1, 1)).xy;
+    velocities[7] = textureLodOffset(s0_b0, uv, 0.0, ivec2(0, 1)).xy;
+    velocities[8] = textureLodOffset(s0_b0, uv, 0.0, ivec2(1)).xy;
+    velocity = vec2(0.0);
+    float sqrMagnitude = 0.0;
+    for (uint idx = 0u; idx < 9u; idx++)
+    {
+        vec2 vel = velocities[idx];
+        float sqrMgn = SqrMagnitude(vel);
+        if (sqrMgn > sqrMagnitude)
+        {
+            velocity = vel;
+            sqrMagnitude = sqrMgn;
+        }
+    }
+}
+
+void main()
+{
+    vec2 uv = inUv;
+    vec2 velocity = vec2(0.0);
+    if (_240)
+    {
+        vec2 param;
+        GetMaxHorizontal(uv, param);
+        velocity = param;
+    }
+    else
+    {
+        if (_249)
+        {
+            vec2 param_1;
+            GetMaxVertical(uv, param_1);
+            velocity = param_1;
+        }
+        else
+        {
+            vec2 param_2;
+            GetMaxAround(uv, param_2);
+            velocity = param_2;
+        }
+    }
+    outColor = vec4(velocity, 0.0, 0.0);
+}
+

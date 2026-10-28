@@ -1,0 +1,746 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct DefaultMaterialUnpackedTexTransformStruct
+{
+    vec4 rotateScale;
+    vec2 translate;
+};
+
+struct DefaultMaterialSingleMaterialStruct
+{
+    vec4 factors[15];
+    uvec4 indices;
+};
+
+struct DefaultMaterialMaterialStruct
+{
+    DefaultMaterialSingleMaterialStruct material[64];
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_1
+#define SPIRV_CROSS_CONSTANT_ID_1 0u
+#endif
+const uint CORE_MATERIAL_FLAGS = SPIRV_CROSS_CONSTANT_ID_1;
+const uint _504 = (CORE_MATERIAL_FLAGS & 8u);
+const bool _505 = (_504 == 8u);
+
+struct DefaultMaterialTransformSingleMaterialStruct
+{
+    uvec4 _packed[15];
+    uvec4 indices;
+};
+
+struct DefaultMaterialTransformMaterialStruct
+{
+    DefaultMaterialTransformSingleMaterialStruct material[64];
+};
+
+const uint _556 = (CORE_MATERIAL_FLAGS & 8u);
+const bool _557 = (_556 == 8u);
+
+struct DefaultCameraMatrixStruct
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    mat4 viewInv;
+    mat4 projInv;
+    mat4 viewProjInv;
+    mat4 viewPrevFrame;
+    mat4 projPrevFrame;
+    mat4 viewProjPrevFrame;
+    mat4 shadowViewProj;
+    mat4 shadowViewProjInv;
+    vec4 jitter;
+    vec4 jitterPrevFrame;
+    uvec4 indices;
+    uvec4 multiViewIndices;
+    vec4 frustumPlanes[6];
+    uvec4 counts;
+    uvec4 pad0;
+    mat4 envProjInv;
+    mat4 matPad1;
+};
+
+struct DefaultMaterialGeneralDataStruct
+{
+    uvec4 indices;
+    vec4 viewportSizeInvViewportSize;
+    vec4 sceneTimingData;
+};
+
+const uint _787 = (CORE_MATERIAL_FLAGS & 16384u);
+const bool _788 = (_787 == 16384u);
+const uint _816 = (CORE_MATERIAL_FLAGS & 128u);
+const bool _817 = (_816 == 128u);
+const uint _829 = (CORE_MATERIAL_FLAGS & 256u);
+const bool _830 = (_829 == 256u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_MATERIAL_TYPE = SPIRV_CROSS_CONSTANT_ID_0;
+const uint _880 = (CORE_MATERIAL_FLAGS & 128u);
+const bool _881 = (_880 == 128u);
+const uint _892 = (CORE_MATERIAL_FLAGS & 256u);
+const bool _893 = (_892 == 256u);
+const uint _933 = (CORE_MATERIAL_FLAGS & 128u);
+const bool _934 = (_933 == 128u);
+const uint _945 = (CORE_MATERIAL_FLAGS & 256u);
+const bool _946 = (_945 == 256u);
+const uint _957 = (CORE_MATERIAL_FLAGS & 4u);
+const bool _958 = (_957 == 4u);
+const uint _981 = (CORE_MATERIAL_FLAGS & 16u);
+const bool _982 = (_981 == 16u);
+const bool _1078 = (CORE_MATERIAL_TYPE == 2u);
+const bool _1083 = (CORE_MATERIAL_TYPE == 3u);
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct DefaultMaterialEnvironmentStruct
+{
+    vec4 indirectSpecularColorFactor;
+    vec4 indirectDiffuseColorFactor;
+    vec4 envMapColorFactor;
+    vec4 values;
+    vec4 blendFactor;
+    mat4 envRotation;
+    uvec4 indices;
+    vec4 shIndirectCoefficients[9];
+    uvec4 multiEnvIndices;
+    vec4 packedSun;
+    vec4 packedPhases;
+    vec4 groundColor;
+    vec4 aerialPerspectiveParams;
+    vec4 skySunParams;
+    vec4 skySunColor;
+    vec4 skyMoonNightParams;
+    vec4 skyMoonColor;
+    vec4 padding[4];
+};
+
+struct DefaultMaterialFogStruct
+{
+    uvec4 indices;
+    vec4 firstLayer;
+    vec4 secondLayer;
+    vec4 baseFactors;
+    vec4 inscatteringColor;
+    vec4 envMapFactor;
+    vec4 additionalFactor;
+};
+
+struct DefaultMaterialSingleLightStruct
+{
+    vec4 pos;
+    vec4 dir;
+    vec4 color;
+    vec4 spotLightParams;
+    vec4 shadowFactors;
+    vec4 additionalFactor;
+    uvec4 flags;
+    uvec4 indices;
+};
+
+struct DefaultMaterialLightStruct
+{
+    uint directionalLightBeginIndex;
+    uint directionalLightCount;
+    uint pointLightBeginIndex;
+    uint pointLightCount;
+    uint spotLightBeginIndex;
+    uint spotLightCount;
+    uint rectLightBeginIndex;
+    uint rectLightCount;
+    uvec4 clusterSizes;
+    vec4 clusterFactors;
+    vec4 atlasSizeInvSize;
+    vec4 additionalFactors;
+    DefaultMaterialSingleLightStruct lights[64];
+    float vpcfRadius;
+    uint vpcfSampleCount;
+    uint paddings0;
+    uint paddings1;
+};
+
+struct GlobalPostProcessStruct
+{
+    uvec4 flags;
+    vec4 renderTimings;
+    vec4 factors[14];
+    vec4 userFactors[16];
+};
+
+struct DefaultMaterialLightClusterData
+{
+    uint count;
+    uint lightIndices[15];
+};
+
+struct DefaultMaterialSingleMeshStruct
+{
+    mat4 world;
+    mat4 normalWorld;
+    mat4 prevWorld;
+    uvec4 indices;
+    uvec4 layers;
+    uvec4 customData[2];
+};
+
+struct DefaultMaterialMeshStruct
+{
+    DefaultMaterialSingleMeshStruct mesh[64];
+};
+
+struct DefaultMaterialSkinStruct
+{
+    mat4 jointMatrices[256];
+};
+
+struct DefaultMaterialSingleUserMaterialStruct
+{
+    uvec4 userData[16];
+};
+
+struct DefaultMaterialUserMaterialStruct
+{
+    DefaultMaterialSingleUserMaterialStruct material[64];
+};
+
+struct DefaultSingleLightProbeStruct
+{
+    vec4 shCoefficientsData[9];
+    vec4 bentNormalAo;
+};
+
+struct DefaultLightProbeDataIndexStruct
+{
+    uint lightProbeDataIndex;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_2
+#define SPIRV_CROSS_CONSTANT_ID_2 0u
+#endif
+const uint CORE_LIGHTING_FLAGS = SPIRV_CROSS_CONSTANT_ID_2;
+#ifndef SPIRV_CROSS_CONSTANT_ID_3
+#define SPIRV_CROSS_CONSTANT_ID_3 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_3;
+#ifndef SPIRV_CROSS_CONSTANT_ID_4
+#define SPIRV_CROSS_CONSTANT_ID_4 0u
+#endif
+const uint CORE_CAMERA_FLAGS = SPIRV_CROSS_CONSTANT_ID_4;
+
+layout(std140) uniform s1_b2
+{
+    DefaultMaterialMaterialStruct uMaterialData;
+} _s1_b2;
+
+layout(std140) uniform s1_b3
+{
+    DefaultMaterialTransformMaterialStruct uMaterialTransformData;
+} _s1_b3;
+
+layout(std140) uniform s0_b0
+{
+    DefaultCameraMatrixStruct uCameras[16];
+} _s0_b0;
+
+layout(std140) uniform s0_b1
+{
+    DefaultMaterialGeneralDataStruct uGeneralData;
+} _s0_b1;
+
+uniform mediump sampler2D s2_b0;
+uniform mediump sampler2D s2_b1[10];
+
+layout(location = 6) flat in uint inIndices;
+layout(location = 4) in vec4 inUv;
+layout(location = 5) in mediump vec4 inColor;
+layout(location = 1) out vec4 outVelocityNormal;
+layout(location = 0) in vec3 inPos;
+layout(location = 3) in vec4 inPrevPosI;
+layout(location = 1) in vec3 inNormal;
+layout(location = 2) out vec4 outBaseColor;
+layout(location = 3) out vec4 outMaterial;
+layout(location = 2) in vec4 inTangentW;
+layout(location = 0) out vec4 outColor;
+
+uint GetUnpackFlatIndicesInstanceIdx(uint indices)
+{
+    return indices >> uint(16);
+}
+
+uint GetInstanceIndex()
+{
+    uint instanceIdx = 0u;
+    if (_788)
+    {
+        uint param = inIndices;
+        instanceIdx = GetUnpackFlatIndicesInstanceIdx(param);
+    }
+    return instanceIdx;
+}
+
+uint GetUnpackTexCoordInfo()
+{
+    return floatBitsToUint(_s1_b2.uMaterialData.material[0].factors[11].y);
+}
+
+vec4 UnpackVec4Half2x16(uvec2 _packed)
+{
+    vec2 _179 = unpackHalf2x16(_packed.x);
+    vec4 up;
+    up.x = _179.x;
+    up.y = _179.y;
+    vec2 _186 = unpackHalf2x16(_packed.y);
+    up.z = _186.x;
+    up.w = _186.y;
+    return up;
+}
+
+DefaultMaterialUnpackedTexTransformStruct GetUnpackTextureTransform(uvec4 packedTexTransform)
+{
+    DefaultMaterialUnpackedTexTransformStruct dm;
+    dm.rotateScale = UnpackVec4Half2x16(packedTexTransform.xy);
+    dm.translate = UnpackVec4Half2x16(packedTexTransform.zw).xy;
+    return dm;
+}
+
+vec2 GetTransformedUV(DefaultMaterialUnpackedTexTransformStruct texTransform, vec2 uvInput)
+{
+    vec2 uv;
+    uv.x = dot(texTransform.rotateScale.xy, uvInput);
+    uv.y = dot(texTransform.rotateScale.zw, uvInput);
+    uv += texTransform.translate;
+    return uv;
+}
+
+vec2 GetFinalSamplingUV(vec4 inputUv, uint texCoordInfoBit, uint texCoordIdx)
+{
+    uint texCoordInfo = GetUnpackTexCoordInfo();
+    vec2 _485;
+    if (((texCoordInfo >> uint(16)) & texCoordInfoBit) == texCoordInfoBit)
+    {
+        _485 = inputUv.zw;
+    }
+    else
+    {
+        _485 = inputUv.xy;
+    }
+    vec2 uv = _485;
+    bool doTrans = ((texCoordInfo & 65535u) & texCoordInfoBit) == texCoordInfoBit;
+    if (_505 && doTrans)
+    {
+        DefaultMaterialUnpackedTexTransformStruct texTransform = GetUnpackTextureTransform(_s1_b3.uMaterialTransformData.material[0]._packed[texCoordIdx]);
+        uv = GetTransformedUV(texTransform, uv);
+    }
+    return uv;
+}
+
+vec4 GetBaseColorSample(vec4 uvInput)
+{
+    vec4 param = uvInput;
+    uint param_1 = 1u;
+    uint param_2 = 0u;
+    vec2 uv = GetFinalSamplingUV(param, param_1, param_2);
+    vec4 _586 = texture(s2_b0, uv);
+    return _586;
+}
+
+vec4 GetUnpackBaseColor(uint instanceIdx)
+{
+    return _s1_b2.uMaterialData.material[instanceIdx].factors[0];
+}
+
+float GetUnpackAlphaCutoff(uint instanceIdx)
+{
+    return _s1_b2.uMaterialData.material[instanceIdx].factors[11].x;
+}
+
+uint GetUnpackFlatIndicesCameraIdx(uint indices)
+{
+    return indices & 65535u;
+}
+
+vec2 GetFinalCalculatedVelocity(vec3 pos, vec3 prevPos, uint cameraIdx)
+{
+    vec4 projPos = _s0_b0.uCameras[cameraIdx].viewProj * vec4(pos, 1.0);
+    vec4 projPosPrev = _s0_b0.uCameras[cameraIdx].viewProjPrevFrame * vec4(prevPos, 1.0);
+    vec2 uvPos = ((projPos.xy / vec2(projPos.w)) * 0.5) + vec2(0.5);
+    vec2 oldUvPos = ((projPosPrev.xy / vec2(projPosPrev.w)) * 0.5) + vec2(0.5);
+    return (uvPos - oldUvPos) * _s0_b1.uGeneralData.viewportSizeInvViewportSize.xy;
+}
+
+vec2 OctWrap(vec2 v)
+{
+    return (vec2(1.0) - abs(v.yx)) * vec2((v.x >= 0.0) ? 1.0 : (-1.0), (v.y >= 0.0) ? 1.0 : (-1.0));
+}
+
+vec2 NormalOctEncode(vec3 normal)
+{
+    vec3 n = normal;
+    n /= vec3((abs(n.x) + abs(n.y)) + abs(n.z));
+    vec2 _261;
+    if (n.z >= 0.0)
+    {
+        _261 = n.xy;
+    }
+    else
+    {
+        vec2 param = n.xy;
+        _261 = OctWrap(param);
+    }
+    n.x = _261.x;
+    n.y = _261.y;
+    vec3 _276 = n;
+    vec2 _281 = (_276.xy * 0.5) + vec2(0.5);
+    n.x = _281.x;
+    n.y = _281.y;
+    return n.xy;
+}
+
+vec4 GetPackVelocityAndNormal(vec2 velocity, vec3 normal)
+{
+    vec3 param = normal;
+    return vec4(velocity, NormalOctEncode(param));
+}
+
+uint GetDeferredMaterialFlagsFromMaterialFlags(uint materialFlags)
+{
+    uint mat = 0u;
+    mat |= uint(int((materialFlags & 1u) == 1u));
+    mat |= uint(((materialFlags & 1024u) == 1024u) ? 2 : 0);
+    mat |= uint(((materialFlags & 2048u) == 2048u) ? 4 : 0);
+    return mat;
+}
+
+vec4 GetPackMaterialWithFlags(vec4 material, uint materialType, uint materialFlags)
+{
+    vec4 _packed = material;
+    uint param = materialFlags;
+    uint mf = GetDeferredMaterialFlagsFromMaterialFlags(param);
+    uint mat = (mf << uint(3)) | materialType;
+    _packed.x = float(mat) * 0.0039215688593685626983642578125;
+    if (materialType == 0u)
+    {
+        _packed.w = clamp(_packed.w * 10.0, 0.0, 1.0);
+    }
+    return _packed;
+}
+
+void UnlitBasic()
+{
+    uint instanceIdx = GetInstanceIndex();
+    mediump vec4 baseColor = (GetBaseColorSample(inUv) * GetUnpackBaseColor(instanceIdx)) * inColor;
+    baseColor.w = clamp(baseColor.w, 0.0, 1.0);
+    if (_817)
+    {
+        if (baseColor.w < GetUnpackAlphaCutoff(instanceIdx))
+        {
+            discard;
+        }
+    }
+    if (_830)
+    {
+        baseColor.w = 1.0;
+    }
+    uint param = inIndices;
+    uint cameraIdx = GetUnpackFlatIndicesCameraIdx(param);
+    vec3 param_1 = inPos;
+    vec3 param_2 = inPrevPosI.xyz;
+    uint param_3 = cameraIdx;
+    vec2 param_4 = GetFinalCalculatedVelocity(param_1, param_2, param_3);
+    vec3 param_5 = inNormal;
+    outVelocityNormal = GetPackVelocityAndNormal(param_4, param_5);
+    outBaseColor = baseColor;
+    vec4 param_6 = vec4(0.0);
+    uint param_7 = CORE_MATERIAL_TYPE;
+    uint param_8 = CORE_MATERIAL_FLAGS;
+    outMaterial = GetPackMaterialWithFlags(param_6, param_7, param_8);
+}
+
+uint GetUnpackTexCoordInfo(uint instanceIdx)
+{
+    return floatBitsToUint(_s1_b2.uMaterialData.material[instanceIdx].factors[11].y);
+}
+
+vec2 GetFinalSamplingUV(vec4 inputUv, uint texCoordInfoBit, uint texCoordIdx, uint instanceIdx)
+{
+    uint param = instanceIdx;
+    uint texCoordInfo = GetUnpackTexCoordInfo(param);
+    vec2 _540;
+    if (((texCoordInfo >> uint(16)) & texCoordInfoBit) == texCoordInfoBit)
+    {
+        _540 = inputUv.zw;
+    }
+    else
+    {
+        _540 = inputUv.xy;
+    }
+    vec2 uv = _540;
+    bool doTrans = ((texCoordInfo & 65535u) & texCoordInfoBit) == texCoordInfoBit;
+    if (_557 && doTrans)
+    {
+        DefaultMaterialUnpackedTexTransformStruct texTransform = GetUnpackTextureTransform(_s1_b3.uMaterialTransformData.material[instanceIdx]._packed[texCoordIdx]);
+        uv = GetTransformedUV(texTransform, uv);
+    }
+    return uv;
+}
+
+vec4 GetBaseColorSample(vec4 uvInput, uint instanceIdx)
+{
+    vec4 param = uvInput;
+    uint param_1 = 1u;
+    uint param_2 = 0u;
+    uint param_3 = instanceIdx;
+    vec2 uv = GetFinalSamplingUV(param, param_1, param_2, param_3);
+    vec4 _599 = texture(s2_b0, uv);
+    return _599;
+}
+
+void UnlitShadowAlpha()
+{
+    uint instanceIdx = GetInstanceIndex();
+    mediump vec4 baseColor = (GetBaseColorSample(inUv, instanceIdx) * GetUnpackBaseColor(instanceIdx)) * inColor;
+    baseColor.w = clamp(baseColor.w, 0.0, 1.0);
+    if (_881)
+    {
+        if (baseColor.w < GetUnpackAlphaCutoff(instanceIdx))
+        {
+            discard;
+        }
+    }
+    if (_893)
+    {
+        baseColor.w = 1.0;
+    }
+    uint param = inIndices;
+    uint cameraIdx = GetUnpackFlatIndicesCameraIdx(param);
+    vec3 param_1 = inPos;
+    vec3 param_2 = inPrevPosI.xyz;
+    uint param_3 = cameraIdx;
+    vec2 param_4 = GetFinalCalculatedVelocity(param_1, param_2, param_3);
+    vec3 param_5 = inNormal;
+    outVelocityNormal = GetPackVelocityAndNormal(param_4, param_5);
+    outBaseColor = baseColor;
+    vec4 param_6 = vec4(0.0);
+    uint param_7 = CORE_MATERIAL_TYPE;
+    uint param_8 = CORE_MATERIAL_FLAGS;
+    outMaterial = GetPackMaterialWithFlags(param_6, param_7, param_8);
+}
+
+vec3 GetNormalSample(vec4 uvInput, uint instanceIdx)
+{
+    vec4 param = uvInput;
+    uint param_1 = 2u;
+    uint param_2 = 1u;
+    uint param_3 = instanceIdx;
+    vec2 uv = GetFinalSamplingUV(param, param_1, param_2, param_3);
+    vec3 _618 = texture(s2_b1[0], uv).xyz;
+    return _618;
+}
+
+float GetUnpackNormalScale(uint instanceIdx)
+{
+    return _s1_b2.uMaterialData.material[instanceIdx].factors[1].x;
+}
+
+mat3 CalcTbnMatrix(vec3 polygonNormal, vec4 tangentW)
+{
+    vec3 tangent = normalize(tangentW.xyz);
+    vec3 bitangent = cross(polygonNormal, tangent) * tangentW.w;
+    return mat3(vec3(tangent), vec3(bitangent), vec3(polygonNormal));
+}
+
+vec3 CalcFinalNormal(mat3 tbn, vec3 normal, float normalScale)
+{
+    vec3 n = normalize(((normal * 2.0) - vec3(1.0)) * vec3(normalScale, normalScale, 1.0));
+    return normalize(tbn * n);
+}
+
+vec3 GetClearcoatNormalSample(vec4 uvInput, uint instanceIdx)
+{
+    vec4 param = uvInput;
+    uint param_1 = 128u;
+    uint param_2 = 7u;
+    uint param_3 = instanceIdx;
+    vec2 uv = GetFinalSamplingUV(param, param_1, param_2, param_3);
+    vec3 _682 = texture(s2_b1[6], uv).xyz;
+    return _682;
+}
+
+float GetUnpackClearcoatNormalScale(uint instanceIdx)
+{
+    return _s1_b2.uMaterialData.material[instanceIdx].factors[7].x;
+}
+
+vec4 GetMaterialSample(vec4 uvInput, uint instanceIdx)
+{
+    vec4 param = uvInput;
+    uint param_1 = 4u;
+    uint param_2 = 2u;
+    uint param_3 = instanceIdx;
+    vec2 uv = GetFinalSamplingUV(param, param_1, param_2, param_3);
+    vec4 _633 = texture(s2_b1[1], uv);
+    return _633;
+}
+
+vec4 GetUnpackMaterial(uint instanceIdx)
+{
+    return _s1_b2.uMaterialData.material[instanceIdx].factors[2];
+}
+
+void GetFinalCorrectedRoughness(mediump vec3 polygonNormal, inout mediump float roughness)
+{
+    mediump vec3 normalDFdx = dFdx(polygonNormal);
+    mediump vec3 normalDdFdy = dFdy(polygonNormal);
+    mediump float geometricRoughness = pow(clamp(max(dot(normalDFdx, normalDFdx), dot(normalDdFdy, normalDdFdy)), 0.0, 1.0), 0.333000004291534423828125);
+    roughness = max(roughness, geometricRoughness);
+    roughness = clamp(roughness, 0.08900000154972076416015625, 1.0);
+}
+
+float GetAOSample(vec4 uvInput, uint instanceIdx)
+{
+    vec4 param = uvInput;
+    uint param_1 = 16u;
+    uint param_2 = 4u;
+    uint param_3 = instanceIdx;
+    vec2 uv = GetFinalSamplingUV(param, param_1, param_2, param_3);
+    float _664 = texture(s2_b1[3], uv).x;
+    return _664;
+}
+
+float GetUnpackAO(uint instanceIdx)
+{
+    return _s1_b2.uMaterialData.material[instanceIdx].factors[4].x;
+}
+
+vec3 GetEmissiveSample(vec4 uvInput, uint instanceIdx)
+{
+    vec4 param = uvInput;
+    uint param_1 = 8u;
+    uint param_2 = 3u;
+    uint param_3 = instanceIdx;
+    vec2 uv = GetFinalSamplingUV(param, param_1, param_2, param_3);
+    vec3 _648 = texture(s2_b1[2], uv).xyz;
+    return _648;
+}
+
+vec3 GetUnpackEmissiveColor(uint instanceIdx)
+{
+    vec4 emissive = _s1_b2.uMaterialData.material[instanceIdx].factors[3];
+    return emissive.xyz * emissive.w;
+}
+
+vec4 GetPackColor(vec4 col)
+{
+    return col;
+}
+
+vec4 GetPackBaseColorWithAo(vec3 col, float ao)
+{
+    return vec4(col, ao);
+}
+
+void PbrBasic()
+{
+    uint instanceIdx = GetInstanceIndex();
+    mediump vec4 baseColor = (GetBaseColorSample(inUv, instanceIdx) * GetUnpackBaseColor(instanceIdx)) * inColor;
+    baseColor.w = clamp(baseColor.w, 0.0, 1.0);
+    if (_934)
+    {
+        if (baseColor.w < GetUnpackAlphaCutoff(instanceIdx))
+        {
+            discard;
+        }
+    }
+    if (_946)
+    {
+        baseColor.w = 1.0;
+    }
+    vec3 normNormal = normalize(inNormal);
+    vec3 N = normNormal;
+    vec3 clearcoatN = normNormal;
+    if (_958)
+    {
+        N = GetNormalSample(inUv, instanceIdx);
+        float normalScale = GetUnpackNormalScale(instanceIdx);
+        vec3 param = normNormal;
+        vec4 param_1 = inTangentW;
+        mat3 tbn = CalcTbnMatrix(param, param_1);
+        mat3 param_2 = tbn;
+        vec3 param_3 = N;
+        float param_4 = normalScale;
+        N = CalcFinalNormal(param_2, param_3, param_4);
+        if (_982)
+        {
+            clearcoatN = GetClearcoatNormalSample(inUv, instanceIdx);
+            float ccNormalScale = GetUnpackClearcoatNormalScale(instanceIdx);
+            mat3 param_5 = tbn;
+            vec3 param_6 = clearcoatN;
+            float param_7 = ccNormalScale;
+            clearcoatN = CalcFinalNormal(param_5, param_6, param_7);
+        }
+    }
+    vec3 _1001;
+    if (gl_FrontFacing)
+    {
+        _1001 = N;
+    }
+    else
+    {
+        _1001 = -N;
+    }
+    N = _1001;
+    mediump vec4 material = GetMaterialSample(inUv, instanceIdx) * GetUnpackMaterial(instanceIdx);
+    mediump vec3 param_8 = normNormal;
+    mediump float param_9 = material.y;
+    GetFinalCorrectedRoughness(param_8, param_9);
+    material.y = param_9;
+    mediump float ao = clamp(GetAOSample(inUv, instanceIdx) * GetUnpackAO(instanceIdx), 0.0, 1.0);
+    mediump vec3 emissive = GetEmissiveSample(inUv, instanceIdx) * GetUnpackEmissiveColor(instanceIdx);
+    emissive *= baseColor.w;
+    vec4 param_10 = vec4(emissive, 1.0);
+    outColor = GetPackColor(param_10);
+    uint param_11 = inIndices;
+    uint cameraIdx = GetUnpackFlatIndicesCameraIdx(param_11);
+    vec3 param_12 = inPos;
+    vec3 param_13 = inPrevPosI.xyz;
+    uint param_14 = cameraIdx;
+    vec2 param_15 = GetFinalCalculatedVelocity(param_12, param_13, param_14);
+    vec3 param_16 = N;
+    outVelocityNormal = GetPackVelocityAndNormal(param_15, param_16);
+    vec3 param_17 = baseColor.xyz;
+    float param_18 = ao;
+    outBaseColor = GetPackBaseColorWithAo(param_17, param_18);
+    vec4 param_19 = material;
+    uint param_20 = CORE_MATERIAL_TYPE;
+    uint param_21 = CORE_MATERIAL_FLAGS;
+    outMaterial = GetPackMaterialWithFlags(param_19, param_20, param_21);
+}
+
+void main()
+{
+    if (_1078)
+    {
+        UnlitBasic();
+    }
+    else
+    {
+        if (_1083)
+        {
+            UnlitShadowAlpha();
+        }
+        else
+        {
+            PbrBasic();
+        }
+    }
+}
+

@@ -1,0 +1,107 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform highp sampler2D s0_b0;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+float SqrMagnitude(vec2 vec)
+{
+    return (vec.x * vec.x) + (vec.y * vec.y);
+}
+
+void main()
+{
+    vec2 uv = inUv;
+    vec2 stepSize = CORE_PC_0.uPc.viewportSizeInvSize.zw / vec2(4.0);
+    uint sampleIdx = 0u;
+    vec2 baseUv = uv;
+    uint _52 = sampleIdx;
+    sampleIdx = _52 + uint(1);
+    vec2 velocities[16];
+    velocities[_52] = textureLod(s0_b0, baseUv, 0.0).xy;
+    uint _65 = sampleIdx;
+    sampleIdx = _65 + uint(1);
+    velocities[_65] = textureLod(s0_b0, baseUv + (stepSize * vec2(1.0, 0.0)), 0.0).xy;
+    uint _77 = sampleIdx;
+    sampleIdx = _77 + uint(1);
+    velocities[_77] = textureLod(s0_b0, baseUv + (stepSize * vec2(2.0, 0.0)), 0.0).xy;
+    uint _89 = sampleIdx;
+    sampleIdx = _89 + uint(1);
+    velocities[_89] = textureLod(s0_b0, baseUv + (stepSize * vec2(3.0, 0.0)), 0.0).xy;
+    vec2 baseUv_1 = uv + (stepSize * vec2(0.0, 1.0));
+    uint _107 = sampleIdx;
+    sampleIdx = _107 + uint(1);
+    velocities[_107] = textureLod(s0_b0, baseUv_1, 0.0).xy;
+    uint _114 = sampleIdx;
+    sampleIdx = _114 + uint(1);
+    velocities[_114] = textureLod(s0_b0, baseUv_1 + (stepSize * vec2(1.0, 0.0)), 0.0).xy;
+    uint _124 = sampleIdx;
+    sampleIdx = _124 + uint(1);
+    velocities[_124] = textureLod(s0_b0, baseUv_1 + (stepSize * vec2(2.0, 0.0)), 0.0).xy;
+    uint _134 = sampleIdx;
+    sampleIdx = _134 + uint(1);
+    velocities[_134] = textureLod(s0_b0, baseUv_1 + (stepSize * vec2(3.0, 0.0)), 0.0).xy;
+    vec2 baseUv_2 = uv + (stepSize * vec2(0.0, 2.0));
+    uint _150 = sampleIdx;
+    sampleIdx = _150 + uint(1);
+    velocities[_150] = textureLod(s0_b0, baseUv_2, 0.0).xy;
+    uint _157 = sampleIdx;
+    sampleIdx = _157 + uint(1);
+    velocities[_157] = textureLod(s0_b0, baseUv_2 + (stepSize * vec2(1.0, 0.0)), 0.0).xy;
+    uint _167 = sampleIdx;
+    sampleIdx = _167 + uint(1);
+    velocities[_167] = textureLod(s0_b0, baseUv_2 + (stepSize * vec2(2.0, 0.0)), 0.0).xy;
+    uint _177 = sampleIdx;
+    sampleIdx = _177 + uint(1);
+    velocities[_177] = textureLod(s0_b0, baseUv_2 + (stepSize * vec2(3.0, 0.0)), 0.0).xy;
+    vec2 baseUv_3 = uv + (stepSize * vec2(0.0, 3.0));
+    uint _193 = sampleIdx;
+    sampleIdx = _193 + uint(1);
+    velocities[_193] = textureLod(s0_b0, baseUv_3, 0.0).xy;
+    uint _200 = sampleIdx;
+    sampleIdx = _200 + uint(1);
+    velocities[_200] = textureLod(s0_b0, baseUv_3 + (stepSize * vec2(1.0, 0.0)), 0.0).xy;
+    uint _210 = sampleIdx;
+    sampleIdx = _210 + uint(1);
+    velocities[_210] = textureLod(s0_b0, baseUv_3 + (stepSize * vec2(2.0, 0.0)), 0.0).xy;
+    uint _220 = sampleIdx;
+    sampleIdx = _220 + uint(1);
+    velocities[_220] = textureLod(s0_b0, baseUv_3 + (stepSize * vec2(3.0, 0.0)), 0.0).xy;
+    vec2 velocity = vec2(0.0);
+    float sqrMagnitude = 0.0;
+    for (uint idx = 0u; idx < 16u; idx++)
+    {
+        vec2 vel = velocities[idx];
+        float sqrMgn = SqrMagnitude(vel);
+        if (sqrMgn > sqrMagnitude)
+        {
+            velocity = vel;
+            sqrMagnitude = sqrMgn;
+        }
+    }
+    outColor = vec4(velocity, 0.0, 0.0);
+}
+

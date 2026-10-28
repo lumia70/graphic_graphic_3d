@@ -1,0 +1,219 @@
+#version 450
+layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
+
+struct SH
+{
+    vec4 coeffs[9];
+};
+
+struct PushConstantLocalStruct
+{
+    vec2 sourceUVSize;
+    vec2 sourceUVOffset;
+    uint probeOutputIndex;
+    uint samplesPerThread;
+    float maxSampleRadiance;
+    uint padding[1];
+};
+
+layout(binding = 11, std430) writeonly buffer s0_b2
+{
+    SH finalSH[65536];
+} _s0_b2;
+
+struct uPushConstant
+{
+    PushConstantLocalStruct uPc;
+};
+
+uniform uPushConstant CORE_PC_0;
+
+uniform sampler2D s0_b0_s0_b1;
+
+shared vec3 s_L[1024];
+
+float RadicalInverse_VdC(inout uint bits)
+{
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 1431655765u) << 1u) | ((bits & 2863311530u) >> 1u);
+    bits = ((bits & 858993459u) << 2u) | ((bits & 3435973836u) >> 2u);
+    bits = ((bits & 252645135u) << 4u) | ((bits & 4042322160u) >> 4u);
+    bits = ((bits & 16711935u) << 8u) | ((bits & 4278255360u) >> 8u);
+    return float(bits) * 2.3283064365386962890625e-10;
+}
+
+vec2 Hammersley(uint i, uint N)
+{
+    uint param = i;
+    float _265 = RadicalInverse_VdC(param);
+    return vec2(float(i) / float(N), _265);
+}
+
+vec3 SampleUniformSphere(vec2 r)
+{
+    float a = 1.0 - (2.0 * r.x);
+    float b = sqrt(1.0 - (a * a));
+    float phi = 6.283185482025146484375 * r.y;
+    return vec3(b * cos(phi), b * sin(phi), a);
+}
+
+void DirectionToCubemapUV(vec3 d, inout vec2 uv, out int face)
+{
+    float maxAxis = max(max(abs(d.x), abs(d.y)), abs(d.z));
+    if (maxAxis == abs(d.x))
+    {
+        vec2 _321;
+        if (d.x > 0.0)
+        {
+            _321 = vec2(-d.z, d.y);
+        }
+        else
+        {
+            _321 = vec2(d.z, d.y);
+        }
+        uv = _321;
+        face = (d.x > 0.0) ? 0 : 1;
+    }
+    else
+    {
+        if (maxAxis == abs(d.y))
+        {
+            vec2 _352;
+            if (d.y > 0.0)
+            {
+                _352 = vec2(d.x, d.z);
+            }
+            else
+            {
+                _352 = vec2(d.x, -d.z);
+            }
+            uv = _352;
+            face = (d.y > 0.0) ? 2 : 3;
+        }
+        else
+        {
+            vec2 _376;
+            if (d.z > 0.0)
+            {
+                _376 = vec2(d.x, d.y);
+            }
+            else
+            {
+                _376 = vec2(-d.x, d.y);
+            }
+            uv = _376;
+            face = (d.z > 0.0) ? 4 : 5;
+        }
+    }
+    uv = ((uv * 0.5) / vec2(maxAxis)) + vec2(0.5);
+}
+
+vec2 CubemapUVToCubemapAtlasUV(inout vec2 uv, int face, vec2 sourceUVOffset)
+{
+    uv.x = (uv.x * 0.16666667163372039794921875) + (float(face) * 0.16666667163372039794921875);
+    uv = sourceUVOffset + (uv * CORE_PC_0.uPc.sourceUVSize);
+    return uv;
+}
+
+vec2 DirectionToCubemapAtlasUV(vec3 direction, vec2 sourceUVOffset)
+{
+    vec3 param = direction;
+    vec2 param_1;
+    int param_2;
+    DirectionToCubemapUV(param, param_1, param_2);
+    vec2 uv = param_1;
+    int face = param_2;
+    vec2 param_3 = uv;
+    int param_4 = face;
+    vec2 param_5 = sourceUVOffset;
+    vec2 _443 = CubemapUVToCubemapAtlasUV(param_3, param_4, param_5);
+    uv = _443;
+    return uv;
+}
+
+vec3 SampleRadiance(vec2 cubemapAtlasUV)
+{
+    return textureLod(s0_b0_s0_b1, cubemapAtlasUV, 0.0).xyz;
+}
+
+SH projectSH(vec3 dir, vec3 radiance)
+{
+    float c = 0.2820949852466583251953125;
+    SH sh;
+    sh.coeffs[0] = vec4(radiance * c, 0.0);
+    c = 0.48860299587249755859375;
+    sh.coeffs[1] = vec4(radiance * (c * dir.y), 0.0);
+    sh.coeffs[2] = vec4(radiance * (c * dir.z), 0.0);
+    sh.coeffs[3] = vec4(radiance * (c * dir.x), 0.0);
+    c = 1.09254801273345947265625;
+    sh.coeffs[4] = vec4(radiance * ((c * dir.x) * dir.y), 0.0);
+    sh.coeffs[5] = vec4(radiance * ((c * dir.y) * dir.z), 0.0);
+    sh.coeffs[7] = vec4(radiance * ((c * dir.x) * dir.z), 0.0);
+    c = 0.3753919899463653564453125;
+    sh.coeffs[6] = vec4(radiance * (c * (((3.0 * dir.z) * dir.z) - 1.0)), 0.0);
+    c = 0.546274006366729736328125;
+    sh.coeffs[8] = vec4(radiance * (c * ((dir.x * dir.x) - (dir.y * dir.y))), 0.0);
+    return sh;
+}
+
+vec3 WorkgroupSumL(uint k)
+{
+    uint d = 512u;
+    while (d > 0u)
+    {
+        if (k < d)
+        {
+            s_L[k] += s_L[k + d];
+        }
+        barrier();
+        d /= 2u;
+    }
+    return s_L[0];
+}
+
+void main()
+{
+    int lid = int(gl_LocalInvocationID.x);
+    uint totalSamples = 1024u * CORE_PC_0.uPc.samplesPerThread;
+    SH sh;
+    for (uint coeffIdx = 0u; coeffIdx < 9u; coeffIdx++)
+    {
+        sh.coeffs[coeffIdx] = vec4(0.0);
+    }
+    for (uint sampleIdx = 0u; sampleIdx < CORE_PC_0.uPc.samplesPerThread; sampleIdx++)
+    {
+        uint param = (sampleIdx * 1024u) + uint(lid);
+        uint param_1 = totalSamples;
+        vec2 r = Hammersley(param, param_1);
+        vec2 param_2 = r;
+        vec3 sampleDirection = SampleUniformSphere(param_2);
+        vec3 param_3 = sampleDirection;
+        vec2 param_4 = CORE_PC_0.uPc.sourceUVOffset;
+        vec2 sampleCubemapAtlasUV = DirectionToCubemapAtlasUV(param_3, param_4);
+        vec2 param_5 = sampleCubemapAtlasUV;
+        vec3 radiance = SampleRadiance(param_5);
+        radiance = min(radiance, vec3(CORE_PC_0.uPc.maxSampleRadiance));
+        vec3 param_6 = sampleDirection;
+        vec3 param_7 = radiance;
+        SH sampleSH = projectSH(param_6, param_7);
+        for (uint coeffIdx_1 = 0u; coeffIdx_1 < 9u; coeffIdx_1++)
+        {
+            sh.coeffs[coeffIdx_1] += sampleSH.coeffs[coeffIdx_1];
+        }
+    }
+    for (uint coeffIdx_2 = 0u; coeffIdx_2 < 9u; coeffIdx_2++)
+    {
+        s_L[lid] = sh.coeffs[coeffIdx_2].xyz;
+        barrier();
+        uint param_8 = uint(lid);
+        vec3 _610 = WorkgroupSumL(param_8);
+        vec3 L = _610 / vec3(float(totalSamples));
+        if (lid == 0)
+        {
+            float sphereSolidAngle = 12.56637096405029296875;
+            _s0_b2.finalSH[CORE_PC_0.uPc.probeOutputIndex].coeffs[coeffIdx_2] = vec4(L * sphereSolidAngle, 0.0);
+        }
+        barrier();
+    }
+}
+

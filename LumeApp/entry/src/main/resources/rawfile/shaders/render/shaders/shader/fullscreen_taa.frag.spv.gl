@@ -1,0 +1,350 @@
+#version 450
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+const ivec2 _253[5] = ivec2[](ivec2(-1), ivec2(1, -1), ivec2(0), ivec2(-1, 1), ivec2(1));
+const ivec2 _386[9] = ivec2[](ivec2(-1), ivec2(-1, 0), ivec2(0, -1), ivec2(0), ivec2(0, 1), ivec2(1, 0), ivec2(1), ivec2(1, -1), ivec2(-1, 1));
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform sampler2D s0_b0_s0_b4;
+uniform sampler2D s0_b2_s0_b4;
+uniform sampler2D s0_b1_s0_b4;
+uniform sampler2D s0_b3_s0_b4;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+vec2 GetVelocity(inout bool isEdge)
+{
+    uint quality = uint(CORE_PC_0.uPc.factor.y + 0.5);
+    vec2 velUv = inUv;
+    if (quality == 1u)
+    {
+        vec4 depth0123 = textureGatherOffsets(s0_b0_s0_b4, inUv, ivec2[](ivec2(-1), ivec2(1, -1), ivec2(0), ivec2(-1, 1)));
+        float depths[5];
+        depths[0] = depth0123.x;
+        depths[1] = depth0123.y;
+        depths[2] = depth0123.z;
+        depths[3] = depth0123.w;
+        depths[4] = textureLodOffset(s0_b0_s0_b4, inUv, 0.0, ivec2(1)).x;
+        float currentDepth = depths[2];
+        float minDepth = depths[0];
+        float avgDepth = depths[0];
+        int minDepthIndex = 0;
+        for (int ii = 1; uint(ii) < 5u; ii++)
+        {
+            if (depths[ii] < minDepth)
+            {
+                minDepth = depths[ii];
+                minDepthIndex = ii;
+            }
+            avgDepth += depths[ii];
+        }
+        ivec2 offset = _253[minDepthIndex];
+        velUv += (vec2(offset) * CORE_PC_0.uPc.viewportSizeInvSize.zw);
+        avgDepth /= 5.0;
+        isEdge = (abs(currentDepth - avgDepth) > 0.0005000000237487256526947021484375) ? true : false;
+    }
+    else
+    {
+        if (quality >= 2u)
+        {
+            vec4 depth0123_1 = textureGather(s0_b0_s0_b4, inUv - vec2(-1.0));
+            vec4 depth3456 = textureGather(s0_b0_s0_b4, inUv);
+            float depths_1[9];
+            depths_1[0] = depth0123_1.x;
+            depths_1[1] = depth0123_1.y;
+            depths_1[2] = depth0123_1.z;
+            depths_1[3] = depth0123_1.w;
+            depths_1[4] = depth3456.y;
+            depths_1[5] = depth3456.z;
+            depths_1[6] = depth3456.w;
+            depths_1[7] = textureLodOffset(s0_b0_s0_b4, inUv, 0.0, ivec2(1, -1)).x;
+            depths_1[8] = textureLodOffset(s0_b0_s0_b4, inUv, 0.0, ivec2(-1, 1)).x;
+            float currentDepth_1 = depths_1[2];
+            float minDepth_1 = depths_1[0];
+            float avgDepth_1 = depths_1[0];
+            int minDepthIndex_1 = 0;
+            for (int ii_1 = 1; uint(ii_1) < 9u; ii_1++)
+            {
+                if (depths_1[ii_1] < minDepth_1)
+                {
+                    minDepth_1 = depths_1[ii_1];
+                    minDepthIndex_1 = ii_1;
+                }
+                avgDepth_1 += depths_1[ii_1];
+            }
+            ivec2 offset_1 = _386[minDepthIndex_1];
+            velUv += (vec2(offset_1) * CORE_PC_0.uPc.viewportSizeInvSize.zw);
+            avgDepth_1 /= 9.0;
+            isEdge = (abs(currentDepth_1 - avgDepth_1) > 0.0005000000237487256526947021484375) ? true : false;
+        }
+    }
+    return textureLod(s0_b2_s0_b4, velUv, 0.0).xy * CORE_PC_0.uPc.viewportSizeInvSize.zw;
+}
+
+void UnpackFeatureToggles(out bool useBicubic, out bool useVarianceClipping, out bool useyCoCG, out bool ignoreEdges)
+{
+    uint combined = floatBitsToUint(CORE_PC_0.uPc.factor.z);
+    useBicubic = (combined & 2u) != 0u;
+    useVarianceClipping = (combined & 4u) != 0u;
+    useyCoCG = (combined & 8u) != 0u;
+    ignoreEdges = (combined & 16u) != 0u;
+}
+
+vec4 cubic(float value)
+{
+    vec4 n = vec4(1.0, 2.0, 3.0, 4.0) - vec4(value);
+    vec4 s = (n * n) * n;
+    float x = s.x;
+    float y = s.y - (4.0 * s.x);
+    float z = (s.z - (4.0 * s.y)) + (6.0 * s.x);
+    float w = ((6.0 - x) - y) - z;
+    return vec4(x, y, z, w) * 0.16666667163372039794921875;
+}
+
+vec3 RGBToYCoCg(vec3 rgb)
+{
+    float y = ((0.25 * rgb.x) + (0.5 * rgb.y)) + (0.25 * rgb.z);
+    float co = (0.5 * rgb.x) - (0.5 * rgb.z);
+    float cg = (((-0.25) * rgb.x) + (0.5 * rgb.y)) - (0.25 * rgb.z);
+    return vec3(y, co, cg);
+}
+
+vec3 VarianceClipAABB(vec3 history, vec3 currColor, vec3 center, vec3 size)
+{
+    vec3 offset = history - center;
+    vec3 absOffset = abs(offset);
+    vec3 extent = max(vec3(0.0), absOffset - size);
+    float maxExtent = max(extent.x, max(extent.y, extent.z));
+    if (maxExtent > 0.0)
+    {
+        float scale = 1.0 - (maxExtent / (max(absOffset.x, max(absOffset.y, absOffset.z)) + 9.9999999392252902907785028219223e-09));
+        return center + (offset * scale);
+    }
+    return history;
+}
+
+vec3 YCoCgToRGB(vec3 ycocg)
+{
+    float r = (ycocg.x + ycocg.y) - ycocg.z;
+    float g = ycocg.x + ycocg.z;
+    float b = (ycocg.x - ycocg.y) - ycocg.z;
+    return vec3(r, g, b);
+}
+
+vec4 CalcVarianceClippedHistoryColor(vec3 history, vec3 currColor, bool useyCoCG)
+{
+    uint quality = uint(CORE_PC_0.uPc.factor.y + 0.5);
+    uint numSamples = 0u;
+    vec3 colors[9];
+    if (quality <= 1u)
+    {
+        numSamples = 5u;
+        colors[0] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(0, -1)).xyz;
+        colors[1] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(-1, 0)).xyz;
+        colors[2] = currColor;
+        colors[3] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(1, 0)).xyz;
+        colors[4] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(0, 1)).xyz;
+    }
+    else
+    {
+        numSamples = 9u;
+        colors[0] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(-1)).xyz;
+        colors[1] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(0, -1)).xyz;
+        colors[2] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(1, -1)).xyz;
+        colors[3] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(-1, 0)).xyz;
+        colors[4] = currColor;
+        colors[5] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(1, 0)).xyz;
+        colors[6] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(-1, 1)).xyz;
+        colors[7] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(0, 1)).xyz;
+        colors[8] = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(1)).xyz;
+    }
+    vec3 sum = vec3(0.0);
+    vec3 sumSq = vec3(0.0);
+    for (int ii = 0; uint(ii) < numSamples; ii++)
+    {
+        vec3 value = colors[ii];
+        if (useyCoCG)
+        {
+            value = RGBToYCoCg(value);
+        }
+        sum += value;
+        sumSq += (value * value);
+    }
+    vec3 mean = sum / vec3(float(numSamples));
+    vec3 variance = sqrt(max(vec3(0.0), (sumSq / vec3(float(numSamples))) - (mean * mean)));
+    vec3 scaledVariance = variance * 1.25;
+    vec3 clampedHistoryColor;
+    if (useyCoCG)
+    {
+        clampedHistoryColor = YCoCgToRGB(VarianceClipAABB(RGBToYCoCg(history), RGBToYCoCg(currColor), mean, scaledVariance));
+    }
+    else
+    {
+        clampedHistoryColor = VarianceClipAABB(history, currColor, mean, scaledVariance);
+    }
+    return vec4(clampedHistoryColor, 1.0);
+}
+
+vec4 CalcMinMaxClippedHistoryColor(vec3 history, vec3 currColor, bool useyCoCG)
+{
+    vec3 bc0 = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(-1)).xyz;
+    vec3 bc1 = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(0, -1)).xyz;
+    vec3 bc2 = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(1, -1)).xyz;
+    vec3 bc3 = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(-1, 0)).xyz;
+    vec3 bc4 = currColor;
+    vec3 bc5 = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(1, 0)).xyz;
+    vec3 bc6 = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(-1, 1)).xyz;
+    vec3 bc7 = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(0, 1)).xyz;
+    vec3 bc8 = textureLodOffset(s0_b1_s0_b4, inUv, 0.0, ivec2(1)).xyz;
+    if (useyCoCG)
+    {
+        bc0 = RGBToYCoCg(bc0);
+        bc1 = RGBToYCoCg(bc1);
+        bc2 = RGBToYCoCg(bc2);
+        bc3 = RGBToYCoCg(bc3);
+        bc4 = RGBToYCoCg(bc4);
+        bc5 = RGBToYCoCg(bc5);
+        bc6 = RGBToYCoCg(bc6);
+        bc7 = RGBToYCoCg(bc7);
+        bc8 = RGBToYCoCg(bc8);
+    }
+    vec3 min13 = min(min(bc1, bc3), bc4);
+    vec3 max13 = max(max(bc1, bc3), bc4);
+    vec3 min57 = min(bc5, bc7);
+    vec3 max57 = max(bc5, bc7);
+    vec3 boxMin = min(min13, min57);
+    vec3 boxMax = max(max13, max57);
+    vec3 min02 = min(boxMin, min(bc0, bc2));
+    vec3 max02 = max(boxMax, max(bc0, bc2));
+    vec3 min68 = min(bc6, bc8);
+    vec3 max68 = max(bc6, bc8);
+    vec3 boxMinCorner = min(min02, min68);
+    vec3 boxMaxCorner = max(max02, max68);
+    boxMin = (boxMin + boxMinCorner) * 0.5;
+    boxMax = (boxMax + boxMaxCorner) * 0.5;
+    vec3 clippedHistory;
+    if (useyCoCG)
+    {
+        vec3 historyYCoCg = RGBToYCoCg(history);
+        clippedHistory = YCoCgToRGB(clamp(historyYCoCg, boxMin, boxMax));
+    }
+    else
+    {
+        clippedHistory = clamp(history, boxMin, boxMax);
+    }
+    return vec4(clippedHistory, 1.0);
+}
+
+vec4 GetHistory(vec2 historyUv, vec4 currColor, bool bicubic, bool useVarianceClipping, bool useyCoCG)
+{
+    vec4 history;
+    if (bicubic)
+    {
+        vec2 texCoords = (historyUv * CORE_PC_0.uPc.viewportSizeInvSize.xy) - vec2(0.5);
+        vec2 fxy = fract(texCoords);
+        texCoords -= fxy;
+        vec4 xcubic = cubic(fxy.x);
+        vec4 ycubic = cubic(fxy.y);
+        vec4 c = texCoords.xxyy + vec4(-0.5, 1.5, -0.5, 1.5);
+        vec4 s = vec4(xcubic.xz + xcubic.yw, ycubic.xz + ycubic.yw);
+        vec4 offset = (c + (vec4(xcubic.yw, ycubic.yw) / s)) * CORE_PC_0.uPc.viewportSizeInvSize.zzww;
+        vec4 aa = textureLod(s0_b3_s0_b4, offset.xz, 0.0);
+        vec4 bb = textureLod(s0_b3_s0_b4, offset.yz, 0.0);
+        vec4 cc = textureLod(s0_b3_s0_b4, offset.xw, 0.0);
+        vec4 dd = textureLod(s0_b3_s0_b4, offset.yw, 0.0);
+        float sx = s.x / (s.x + s.y);
+        float sy = s.z / (s.z + s.w);
+        history = mix(mix(dd, cc, vec4(sx)), mix(bb, aa, vec4(sx)), vec4(sy));
+    }
+    else
+    {
+        history = textureLod(s0_b3_s0_b4, historyUv, 0.0);
+    }
+    if (useVarianceClipping)
+    {
+        history = CalcVarianceClippedHistoryColor(history.xyz, currColor.xyz, useyCoCG);
+    }
+    else
+    {
+        history = CalcMinMaxClippedHistoryColor(history.xyz, currColor.xyz, useyCoCG);
+    }
+    return history;
+}
+
+float CalcLuma(vec3 color)
+{
+    return ((0.2989999949932098388671875 * color.x) + (0.58700001239776611328125 * color.y)) + (0.114000000059604644775390625 * color.z);
+}
+
+void main()
+{
+    bool param;
+    vec2 _1019 = GetVelocity(param);
+    bool isEdge = param;
+    vec2 velocity = _1019;
+    vec2 historyUv = inUv - velocity;
+    bool useBicubic = false;
+    bool useVarianceClipping = false;
+    bool useyCoCG = false;
+    bool ignoreEdges = false;
+    bool param_1;
+    bool param_2;
+    bool param_3;
+    bool param_4;
+    UnpackFeatureToggles(param_1, param_2, param_3, param_4);
+    useBicubic = param_1;
+    useVarianceClipping = param_2;
+    useyCoCG = param_3;
+    ignoreEdges = param_4;
+    if (length(velocity) <= 0.001000000047497451305389404296875)
+    {
+        useVarianceClipping = false;
+    }
+    if (isEdge && ignoreEdges)
+    {
+        useBicubic = false;
+    }
+    vec4 currColor = textureLod(s0_b1_s0_b4, inUv, 0.0);
+    vec4 history = GetHistory(historyUv, currColor, useBicubic, useVarianceClipping, useyCoCG);
+    float blendWeight = CORE_PC_0.uPc.factor.w;
+    float historyLuma = CalcLuma(history.xyz);
+    float colorLuma = CalcLuma(currColor.xyz);
+    vec4 _1076 = history;
+    vec3 _1078 = _1076.xyz * (1.0 / (1.0 + historyLuma));
+    history.x = _1078.x;
+    history.y = _1078.y;
+    history.z = _1078.z;
+    vec4 _1088 = currColor;
+    vec3 _1090 = _1088.xyz * (1.0 / (1.0 + colorLuma));
+    currColor.x = _1090.x;
+    currColor.y = _1090.y;
+    currColor.z = _1090.z;
+    vec4 color = mix(history, currColor, vec4(blendWeight));
+    float tonedLuma = CalcLuma(color.xyz);
+    float inverseFactor = 1.0 / max(0.001000000047497451305389404296875, 1.0 - tonedLuma);
+    vec4 _1115 = color;
+    vec3 _1117 = _1115.xyz * min(inverseFactor, 100.0);
+    color.x = _1117.x;
+    color.y = _1117.y;
+    color.z = _1117.z;
+    outColor = max(color, vec4(0.0));
+}
+

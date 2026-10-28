@@ -1,0 +1,227 @@
+#version 320 es
+#define SPIRV_CROSS_CONSTANT_ID_256 1u
+precision highp float;
+precision highp int;
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_0
+#define SPIRV_CROSS_CONSTANT_ID_0 0u
+#endif
+const uint CORE_POST_PROCESS_FLAGS = SPIRV_CROSS_CONSTANT_ID_0;
+const uint _570 = (2u & CORE_POST_PROCESS_FLAGS);
+const bool _572 = (_570 == 2u);
+
+struct LocalPostProcessPushConstantStruct
+{
+    vec4 viewportSizeInvSize;
+    vec4 factor;
+};
+
+#ifndef SPIRV_CROSS_CONSTANT_ID_256
+#define SPIRV_CROSS_CONSTANT_ID_256 0u
+#endif
+const uint CORE_BACKEND_TYPE = SPIRV_CROSS_CONSTANT_ID_256;
+uniform float CORE_FLIP_NDC ;
+
+struct uPostProcessPushConstant
+{
+    LocalPostProcessPushConstantStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+uniform highp sampler2D s0_b0_s0_b1;
+
+layout(location = 0) in vec2 inUv;
+layout(location = 0) out vec4 outColor;
+
+float CalcLuma(vec3 color)
+{
+    return ((0.2989999949932098388671875 * color.x) + (0.58700001239776611328125 * color.y)) + (0.114000000059604644775390625 * color.z);
+}
+
+vec3 BloomDownscaleWeighted9(vec2 uv, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec3 colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv + (vec2(-0.96875, 0.96875) * invTexSize), 0.0).xyz;
+    float weight = 1.0 / (1.0 + CalcLuma(colSample));
+    vec3 color = (colSample * 0.0625) * weight;
+    float fullWeight = weight;
+    colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv + (vec2(0.0, 0.9375) * invTexSize), 0.0).xyz;
+    weight = 1.0 / (1.0 + CalcLuma(colSample));
+    color += ((colSample * 0.125) * weight);
+    fullWeight += weight;
+    colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv + (vec2(0.96875) * invTexSize), 0.0).xyz;
+    weight = 1.0 / (1.0 + CalcLuma(colSample));
+    color += ((colSample * 0.0625) * weight);
+    fullWeight += weight;
+    colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv + (vec2(-0.9375, 0.0) * invTexSize), 0.0).xyz;
+    weight = 1.0 / (1.0 + CalcLuma(colSample));
+    color += ((colSample * 0.125) * weight);
+    fullWeight += weight;
+    colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).xyz;
+    weight = 1.0 / (1.0 + CalcLuma(colSample));
+    color += ((colSample * 0.25) * weight);
+    fullWeight += weight;
+    colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv + (vec2(0.9375, 0.0) * invTexSize), 0.0).xyz;
+    weight = 1.0 / (1.0 + CalcLuma(colSample));
+    color += ((colSample * 0.125) * weight);
+    fullWeight += weight;
+    colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv + (vec2(-0.96875) * invTexSize), 0.0).xyz;
+    weight = 1.0 / (1.0 + CalcLuma(colSample));
+    color += ((colSample * 0.0625) * weight);
+    fullWeight += weight;
+    colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv + (vec2(0.0, -0.9375) * invTexSize), 0.0).xyz;
+    weight = 1.0 / (1.0 + CalcLuma(colSample));
+    color += ((colSample * 0.125) * weight);
+    fullWeight += weight;
+    colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv + (vec2(0.96875, -0.96875) * invTexSize), 0.0).xyz;
+    weight = 1.0 / (1.0 + CalcLuma(colSample));
+    color += ((colSample * 0.0625) * weight);
+    fullWeight += weight;
+    color *= (10.5 / fullWeight);
+    return color;
+}
+
+void BloomSampleAndAdd(vec2 uv, float coeff, inout float fullWeight, inout vec3 fullColor, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec3 colSample = textureLod(SPIRV_Cross_Combinedtexsampl, uv, 0.0).xyz;
+    float weight = 1.0 / (1.0 + CalcLuma(colSample));
+    fullColor += ((colSample * coeff) * weight);
+    fullWeight += weight;
+}
+
+vec3 BloomDownscaleWeighted(vec2 uv, vec2 invTexSize, highp sampler2D SPIRV_Cross_Combinedtexsampl)
+{
+    vec2 ts = invTexSize;
+    float fullWeight = 9.9999997473787516355514526367188e-06;
+    vec3 color = vec3(0.0);
+    vec2 param = vec2(uv.x - ts.x, uv.y - ts.y);
+    float param_1 = 0.03125;
+    float param_2 = fullWeight;
+    vec3 param_3 = color;
+    BloomSampleAndAdd(param, param_1, param_2, param_3, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_2;
+    color = param_3;
+    vec2 param_4 = vec2(uv.x, uv.y - ts.y);
+    float param_5 = 0.0625;
+    float param_6 = fullWeight;
+    vec3 param_7 = color;
+    BloomSampleAndAdd(param_4, param_5, param_6, param_7, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_6;
+    color = param_7;
+    vec2 param_8 = vec2(uv.x + ts.x, uv.y - ts.y);
+    float param_9 = 0.03125;
+    float param_10 = fullWeight;
+    vec3 param_11 = color;
+    BloomSampleAndAdd(param_8, param_9, param_10, param_11, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_10;
+    color = param_11;
+    vec2 param_12 = vec2(uv.x - ts.x, uv.y);
+    float param_13 = 0.0625;
+    float param_14 = fullWeight;
+    vec3 param_15 = color;
+    BloomSampleAndAdd(param_12, param_13, param_14, param_15, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_14;
+    color = param_15;
+    vec2 param_16 = vec2(uv.x, uv.y);
+    float param_17 = 0.125;
+    float param_18 = fullWeight;
+    vec3 param_19 = color;
+    BloomSampleAndAdd(param_16, param_17, param_18, param_19, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_18;
+    color = param_19;
+    vec2 param_20 = vec2(uv.x + ts.x, uv.y);
+    float param_21 = 0.0625;
+    float param_22 = fullWeight;
+    vec3 param_23 = color;
+    BloomSampleAndAdd(param_20, param_21, param_22, param_23, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_22;
+    color = param_23;
+    vec2 param_24 = vec2(uv.x - ts.x, uv.y + ts.y);
+    float param_25 = 0.03125;
+    float param_26 = fullWeight;
+    vec3 param_27 = color;
+    BloomSampleAndAdd(param_24, param_25, param_26, param_27, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_26;
+    color = param_27;
+    vec2 param_28 = vec2(uv.x, uv.y + ts.y);
+    float param_29 = 0.125;
+    float param_30 = fullWeight;
+    vec3 param_31 = color;
+    BloomSampleAndAdd(param_28, param_29, param_30, param_31, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_30;
+    color = param_31;
+    vec2 param_32 = vec2(uv.x + ts.x, uv.y + ts.y);
+    float param_33 = 0.03125;
+    float param_34 = fullWeight;
+    vec3 param_35 = color;
+    BloomSampleAndAdd(param_32, param_33, param_34, param_35, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_34;
+    color = param_35;
+    vec2 ths = ts * 0.5;
+    vec2 param_36 = vec2(uv.x - ths.x, uv.y - ths.y);
+    float param_37 = 0.125;
+    float param_38 = fullWeight;
+    vec3 param_39 = color;
+    BloomSampleAndAdd(param_36, param_37, param_38, param_39, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_38;
+    color = param_39;
+    vec2 param_40 = vec2(uv.x + ths.x, uv.y - ths.y);
+    float param_41 = 0.125;
+    float param_42 = fullWeight;
+    vec3 param_43 = color;
+    BloomSampleAndAdd(param_40, param_41, param_42, param_43, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_42;
+    color = param_43;
+    vec2 param_44 = vec2(uv.x - ths.x, uv.y + ths.y);
+    float param_45 = 0.125;
+    float param_46 = fullWeight;
+    vec3 param_47 = color;
+    BloomSampleAndAdd(param_44, param_45, param_46, param_47, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_46;
+    color = param_47;
+    vec2 param_48 = vec2(uv.x + ths.x, uv.y + ths.y);
+    float param_49 = 0.125;
+    float param_50 = fullWeight;
+    vec3 param_51 = color;
+    BloomSampleAndAdd(param_48, param_49, param_50, param_51, SPIRV_Cross_Combinedtexsampl);
+    fullWeight = param_50;
+    color = param_51;
+    color *= (13.0 / fullWeight);
+    return color;
+}
+
+void main()
+{
+    vec2 uv = inUv;
+    vec3 color = vec3(0.0);
+    if (_572)
+    {
+        vec2 param = uv;
+        vec2 param_1 = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+        color = BloomDownscaleWeighted9(param, param_1, s0_b0_s0_b1);
+    }
+    else
+    {
+        vec2 param_2 = uv;
+        vec2 param_3 = CORE_PC_0.uPc.viewportSizeInvSize.zw;
+        color = BloomDownscaleWeighted(param_2, param_3, s0_b0_s0_b1);
+    }
+    float luma = CalcLuma(color);
+    if (luma < CORE_PC_0.uPc.factor.x)
+    {
+        color = vec3(0.0);
+    }
+    else
+    {
+        if (luma < CORE_PC_0.uPc.factor.y)
+        {
+            float divisor = CORE_PC_0.uPc.factor.y - CORE_PC_0.uPc.factor.x;
+            float coeff = 1.0 / divisor;
+            float lumaCoeff = (luma - CORE_PC_0.uPc.factor.x) * coeff;
+            color *= max(0.0, lumaCoeff);
+        }
+    }
+    color = min(color, vec3(64512.0));
+    outColor = vec4(color, 1.0);
+}
+

@@ -1,0 +1,136 @@
+#version 320 es
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct AtmosphericConfig
+{
+    vec3 rayleighScatteringBase;
+    vec3 ozoneAbsorptionBase;
+    float mieScatteringBase;
+    float mieAbsorptionBase;
+    vec3 groundColor;
+    float skyViewBrightness;
+};
+
+struct PushConstantLocalStruct
+{
+    vec4 rayleighScatteringBase;
+    vec4 ozoneAbsorptionBase;
+};
+
+struct uPostProcessPushConstant
+{
+    PushConstantLocalStruct uPc;
+};
+
+uniform uPostProcessPushConstant CORE_PC_0;
+
+layout(binding = 11, rgba16f) uniform writeonly highp image2D s0_b0;
+
+void GetRMuFromTransmittanceTextureUv(vec2 uv, inout float r, inout float mu)
+{
+    float h = 1133.2254638671875;
+    float xMu = uv.x;
+    float xR = uv.y;
+    float rho = h * xR;
+    r = sqrt((rho * rho) + 40589640.0);
+    float dMin = 6471.0 - r;
+    float dMax = rho + h;
+    float d = dMin + (xMu * (dMax - dMin));
+    float _143;
+    if (d == 0.0)
+    {
+        _143 = 1.0;
+    }
+    else
+    {
+        _143 = (((h * h) - (rho * rho)) - (d * d)) / ((2.0 * r) * d);
+    }
+    mu = _143;
+    mu = clamp(mu, -1.0, 1.0);
+}
+
+float DistanceToTopAtmosphereBoundary(float r, float mu)
+{
+    float discriminant = ((r * r) * ((mu * mu) - 1.0)) + 41873840.0;
+    return max(0.0, ((-r) * mu) + sqrt(max(0.0, discriminant)));
+}
+
+void GetScatteringValues(vec3 pos, AtmosphericConfig atmosphericConfig, inout vec3 rayleighScattering, inout float mieScattering, out vec3 extinction)
+{
+    float altitudeKM = length(pos) - 6371.0;
+    float rayleighDensity = exp((-altitudeKM) / 8.0);
+    float mieDensity = exp((-altitudeKM) / 1.2000000476837158203125);
+    rayleighScattering = (atmosphericConfig.rayleighScatteringBase * 0.001000000047497451305389404296875) * rayleighDensity;
+    float rayleighAbsorption = 0.0 * rayleighDensity;
+    mieScattering = (atmosphericConfig.mieScatteringBase * 0.001000000047497451305389404296875) * mieDensity;
+    float mieAbsorption = (atmosphericConfig.mieAbsorptionBase * 0.001000000047497451305389404296875) * mieDensity;
+    vec3 ozoneAbsorption = (atmosphericConfig.ozoneAbsorptionBase * 0.001000000047497451305389404296875) * max(0.0, 1.0 - (abs(altitudeKM - 25.0) / 15.0));
+    extinction = (((rayleighScattering + vec3(rayleighAbsorption)) + vec3(mieScattering)) + vec3(mieAbsorption)) + ozoneAbsorption;
+}
+
+vec3 ComputeTransmittanceToTopAtmosphereBoundary(float r, float mu, AtmosphericConfig atmosphericConfig)
+{
+    vec3 pos = vec3(0.0, r, 0.0);
+    vec3 dir = vec3(sqrt(max(0.0, 1.0 - (mu * mu))), mu, 0.0);
+    bool _203 = mu < 0.0;
+    bool _216;
+    if (_203)
+    {
+        _216 = (((r * r) * ((mu * mu) - 1.0)) + 40589640.0) >= 0.0;
+    }
+    else
+    {
+        _216 = _203;
+    }
+    if (_216)
+    {
+        return vec3(0.0);
+    }
+    float param = r;
+    float param_1 = mu;
+    float atmoDist = DistanceToTopAtmosphereBoundary(param, param_1);
+    float dt = atmoDist / 40.0;
+    vec3 transmittance = vec3(1.0);
+    vec3 param_3;
+    float param_4;
+    vec3 param_5;
+    for (float i = 0.5; i < 40.0; i += 1.0)
+    {
+        float t = i * dt;
+        vec3 samplePos = pos + (dir * t);
+        vec3 param_2 = samplePos;
+        GetScatteringValues(param_2, atmosphericConfig, param_3, param_4, param_5);
+        vec3 rayleighScattering = param_3;
+        float mieScattering = param_4;
+        vec3 extinction = param_5;
+        transmittance *= exp(extinction * (-dt));
+    }
+    return transmittance;
+}
+
+void main()
+{
+    ivec2 uv = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imageDim = imageSize(s0_b0);
+    AtmosphericConfig atmosphericConfig;
+    atmosphericConfig.rayleighScatteringBase = CORE_PC_0.uPc.rayleighScatteringBase.xyz;
+    atmosphericConfig.mieAbsorptionBase = CORE_PC_0.uPc.rayleighScatteringBase.w;
+    atmosphericConfig.ozoneAbsorptionBase = CORE_PC_0.uPc.ozoneAbsorptionBase.xyz;
+    atmosphericConfig.mieScatteringBase = CORE_PC_0.uPc.ozoneAbsorptionBase.w;
+    if (any(greaterThanEqual(uv, imageDim)))
+    {
+        return;
+    }
+    vec2 normalizedUV = vec2(float(uv.x) + 0.5, float(uv.y) + 0.5) / vec2(imageDim);
+    vec2 param = normalizedUV;
+    float param_1;
+    float param_2;
+    GetRMuFromTransmittanceTextureUv(param, param_1, param_2);
+    float r = param_1;
+    float mu = param_2;
+    float param_3 = r;
+    float param_4 = mu;
+    vec3 transmittance = ComputeTransmittanceToTopAtmosphereBoundary(param_3, param_4, atmosphericConfig);
+    imageStore(s0_b0, uv, vec4(transmittance, 1.0));
+}
+

@@ -950,17 +950,35 @@ void RenderGraph::StoreFinalBufferState()
 void RenderGraph::StoreFinalImageState()
 {
     swapchainStates_ = {};  // reset
+    static uint32_t sFrameCount = 0;
+    sFrameCount++;
 
+    uint32_t dynamicCount = 0;
+    uint32_t swapchainFlagCount = 0;
+    uint32_t totalTracked = 0;
 #if (RENDER_DEV_ENABLED == 1)
     if constexpr (CORE_RENDER_GRAPH_PRINT_RESOURCE_STATES) {
         PLUGIN_LOG_I("end_frame image_state:");
     }
 #endif
     for (auto& ref : gpuImageTracking_) {
+        if (ref.resource.handle.id == 0) continue;
+        totalTracked++;
         // if resource is not dynamic, we do not track and care
         if (!RenderHandleUtil::IsDynamicResource(ref.resource.handle)) {
             ref = {};
             continue;
+        }
+        dynamicCount++;
+        if (RenderHandleUtil::IsSwapchain(ref.resource.handle)) {
+            swapchainFlagCount++;
+            const uint32_t flags = ref.state.accessFlags | ref.state.shaderStageFlags | ref.state.pipelineStageFlags;
+            if (sFrameCount <= 3U) {
+                PLUGIN_LOG_E("DIAG StoreFinalState: swapImg handle=0x%llx access=0x%x shader=0x%x pipeline=0x%x layout=%u",
+                    (unsigned long long)ref.resource.handle.id, ref.state.accessFlags,
+                    ref.state.shaderStageFlags, ref.state.pipelineStageFlags,
+                    (unsigned)ref.resource.imageLayout);
+            }
         }
         // handle automatic presentation layout
         if (stateCache_.checkForBackbufferDependency && RenderHandleUtil::IsSwapchain(ref.resource.handle)) {
@@ -1005,6 +1023,11 @@ void RenderGraph::StoreFinalImageState()
         // need to reset per frame variables for all images (so we do not try to patch from previous frames)
         ref.prevRc = {};
         ref.prevRenderNodeIndex = {~0u};
+    }
+    if (sFrameCount <= 3U) {
+        PLUGIN_LOG_E("DIAG StoreFinalState SUMMARY: total=%u dynamic=%u swapchainFlag=%u swapchainResult=%zu checkBB=%d",
+            totalTracked, dynamicCount, swapchainFlagCount,
+            swapchainStates_.swapchains.size(), (int)stateCache_.checkForBackbufferDependency);
     }
 }
 
