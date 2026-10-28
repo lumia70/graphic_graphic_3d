@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <cstring>
 #include <cstdio>
 #include <cmath>
@@ -59,30 +60,31 @@ struct SplatData {
     float boundsMax[3] = {-1e30f, -1e30f, -1e30f};
 };
 
-// Decode packed 10-10-10-2 position within chunk AABB
+// Decode packed position within chunk AABB.
+// super-splat compressed-chunk packing (verified against splat-transform
+// src/lib/writers/compressed-chunk.ts): pack111011 = (x:11 << 21) | (y:10 << 11) | z:11
+// i.e. LOW bits hold z, then y, then x in the top 11 bits.
 inline void DecodePosition(uint32_t packed, const SplatChunk& chunk, float& x, float& y, float& z) {
-    uint32_t ix = (packed >> 0) & 0x3FF;   // 10 bits
-    uint32_t iy = (packed >> 10) & 0x3FF;  // 10 bits
-    uint32_t iz = (packed >> 20) & 0x3FF;  // 10 bits
-    // Normalize to [0, 1]
-    float fx = static_cast<float>(ix) / 1023.0f;
+    uint32_t iz = (packed >> 0) & 0x7FF;   // 11 bits
+    uint32_t iy = (packed >> 11) & 0x3FF;  // 10 bits
+    uint32_t ix = (packed >> 21) & 0x7FF;  // 11 bits
+    float fx = static_cast<float>(ix) / 2047.0f;
     float fy = static_cast<float>(iy) / 1023.0f;
-    float fz = static_cast<float>(iz) / 1023.0f;
-    // Lerp within chunk AABB
+    float fz = static_cast<float>(iz) / 2047.0f;
     x = chunk.minX + fx * (chunk.maxX - chunk.minX);
     y = chunk.minY + fy * (chunk.maxY - chunk.minY);
     z = chunk.minZ + fz * (chunk.maxZ - chunk.minZ);
 }
 
-// Decode packed 10-10-10-2 scale within chunk scale range
+// Decode packed scale (same pack111011 layout as position) and exponentiate.
 inline void DecodeScale(uint32_t packed, const SplatChunk& chunk, float& sx, float& sy, float& sz) {
-    uint32_t ix = (packed >> 0) & 0x3FF;
-    uint32_t iy = (packed >> 10) & 0x3FF;
-    uint32_t iz = (packed >> 20) & 0x3FF;
-    float fx = static_cast<float>(ix) / 1023.0f;
+    uint32_t iz = (packed >> 0) & 0x7FF;
+    uint32_t iy = (packed >> 11) & 0x3FF;
+    uint32_t ix = (packed >> 21) & 0x7FF;
+    float fx = static_cast<float>(ix) / 2047.0f;
     float fy = static_cast<float>(iy) / 1023.0f;
-    float fz = static_cast<float>(iz) / 1023.0f;
-    // Scales are in log space in the chunk; dequantize then exp
+    float fz = static_cast<float>(iz) / 2047.0f;
+    // Scales are stored in log space in the chunk; dequantize then exp
     float logSx = chunk.minScaleX + fx * (chunk.maxScaleX - chunk.minScaleX);
     float logSy = chunk.minScaleY + fy * (chunk.maxScaleY - chunk.minScaleY);
     float logSz = chunk.minScaleZ + fz * (chunk.maxScaleZ - chunk.minScaleZ);
@@ -91,18 +93,30 @@ inline void DecodeScale(uint32_t packed, const SplatChunk& chunk, float& sx, flo
     sz = std::exp(logSz);
 }
 
-// Decode packed rotation: 4 × 8-bit normalized quaternion components
-// Stored as unsigned bytes [0,255] mapping to [-1, 1]
+// Decode packed rotation (super-splat 2-10-10-10 packing):
+//   bits 30-31: index of the largest-magnitude component (0..3 = x,y,z,w)
+//   three 10-bit fields follow from bit 20 down to 0, holding the remaining
+//   components in ascending index order, quantised as round((a*√2/2 + 0.5)*1023)
 inline void DecodeRotation(uint32_t packed, float& qw, float& qx, float& qy, float& qz) {
-    uint8_t bw = (packed >> 0) & 0xFF;
-    uint8_t bx = (packed >> 8) & 0xFF;
-    uint8_t by = (packed >> 16) & 0xFF;
-    uint8_t bz = (packed >> 24) & 0xFF;
-    qw = (static_cast<float>(bw) / 127.5f) - 1.0f;
-    qx = (static_cast<float>(bx) / 127.5f) - 1.0f;
-    qy = (static_cast<float>(by) / 127.5f) - 1.0f;
-    qz = (static_cast<float>(bz) / 127.5f) - 1.0f;
-    // Normalize
+    const uint32_t largest = (packed >> 30) & 0x3;
+    float comps[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    uint32_t shift = 20;
+    for (uint32_t i = 0; i < 4; i++) {
+        if (i == largest) continue;
+        const uint32_t raw = (packed >> shift) & 0x3FF;
+        shift -= 10;
+        const float v = static_cast<float>(raw) / 1023.0f;
+        comps[i] = (v - 0.5f) * 1.41421356f;  // undo (a*√2/2 + 0.5)
+    }
+    // Reconstruct the largest component (sign chosen positive at pack time)
+    float sumSq = comps[0]*comps[0] + comps[1]*comps[1] + comps[2]*comps[2] + comps[3]*comps[3];
+    comps[largest] = std::sqrt(sumSq < 1.0f ? (1.0f - sumSq) : 0.0f);
+    // PlayCanvas quaternions are (x, y, z, w)
+    qx = comps[0];
+    qy = comps[1];
+    qz = comps[2];
+    qw = comps[3];
+    // Normalize (quantisation noise)
     float len = std::sqrt(qw*qw + qx*qx + qy*qy + qz*qz);
     if (len > 1e-8f) {
         float inv = 1.0f / len;
@@ -151,60 +165,203 @@ inline bool ParsePlyHeader(FILE* f, uint32_t& chunkCount, uint32_t& vertexCount)
     return (chunkCount > 0 && vertexCount > 0);
 }
 
-// Load a .splat PLY file and decode all gaussians
-inline bool LoadSplatFile(const char* path, SplatData& out) {
-    FILE* f = fopen(path, "rb");
-    if (!f) return false;
-    
-    uint32_t chunkCount = 0, vertexCount = 0;
-    if (!ParsePlyHeader(f, chunkCount, vertexCount)) {
-        fclose(f);
-        return false;
+// Decode a super-splat compressed PLY payload held in memory.
+//
+// The header declares a sequence of elements; this parser walks them in order
+// and decodes every element it understands, keeping the SH data available for
+// the render pipeline (which may or may not consume it):
+//   chunk            12 floats  — AABB + log-scale range per 256 gaussians
+//   vertex            4 uints   — packed position / rotation / scale / colour
+//   feature_rest_vq   1 uint    — per-gaussian index into the SH codebook
+//   feature_rest     45 chars   — vector-quantised SH codebook (f_rest_0..44)
+// Inline per-vertex f_rest_0..44 float properties (uncompressed variant) are
+// also supported. Unknown trailing elements are skipped by their declared size.
+inline size_t PlyTypeSize(const char* type)
+{
+    if (!strcmp(type, "char") || !strcmp(type, "uchar") || !strcmp(type, "int8") || !strcmp(type, "uint8")) return 1;
+    if (!strcmp(type, "short") || !strcmp(type, "ushort") || !strcmp(type, "int16") || !strcmp(type, "uint16")) return 2;
+    if (!strcmp(type, "int") || !strcmp(type, "uint") || !strcmp(type, "int32") || !strcmp(type, "uint32") ||
+        !strcmp(type, "float") || !strcmp(type, "float32")) return 4;
+    if (!strcmp(type, "double") || !strcmp(type, "float64")) return 8;
+    return 0;
+}
+
+struct PlyElementDesc {
+    std::string name;
+    uint32_t count = 0;
+    size_t stride = 0;
+    std::vector<std::pair<std::string, size_t>> props;  // (name, byte offset in record)
+    size_t dataOffset = 0;                              // relative to header end
+};
+
+inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& out,
+    const bool colorIsAbgr = false)
+{
+    if (!data || size < 16) return false;
+    const char* text = reinterpret_cast<const char*>(data);
+    size_t hdrEnd = SIZE_MAX;
+    for (size_t i = 0; i + 10 <= size; i++) {
+        if (memcmp(text + i, "end_header", 10) == 0) {
+            size_t j = i + 10;
+            if (j < size && text[j] == '\r') j++;
+            if (j < size && text[j] == '\n') j++;
+            hdrEnd = j;
+            break;
+        }
     }
-    
-    // Read chunk table
-    out.chunks.resize(chunkCount);
-    size_t readChunks = fread(out.chunks.data(), sizeof(SplatChunk), chunkCount, f);
-    if (readChunks != chunkCount) {
-        fclose(f);
-        return false;
+    if (hdrEnd == SIZE_MAX) return false;
+
+    // ---- Parse the header into element/property descriptors and declares ----
+    std::vector<PlyElementDesc> elements;
+    float restScale = 1.0f;
+    float restZeroPoint = 0.0f;
+    size_t lineStart = 0;
+    for (size_t i = 0; i <= hdrEnd; i++) {
+        if (i != hdrEnd && text[i] != '\n') continue;
+        size_t len = i - lineStart;
+        while (len > 0 && (text[lineStart + len - 1] == '\r' || text[lineStart + len - 1] == ' ')) len--;
+        if (len > 0) {
+            std::string line(text + lineStart, len);
+            if (line.rfind("element ", 0) == 0) {
+                PlyElementDesc el;
+                char name[64] = {0};
+                unsigned count = 0;
+                if (sscanf(line.c_str(), "element %63s %u", name, &count) == 2 && count > 0) {
+                    el.name = name;
+                    el.count = count;
+                    elements.push_back(std::move(el));
+                }
+            } else if (line.rfind("property ", 0) == 0 && !elements.empty()) {
+                char type[32] = {0};
+                char name[64] = {0};
+                if (sscanf(line.c_str(), "property %31s %63s", type, name) == 2) {
+                    size_t propSize = PlyTypeSize(type);
+                    if (propSize > 0) {
+                        auto& el = elements.back();
+                        el.props.emplace_back(name, el.stride);
+                        el.stride += propSize;
+                    }
+                }
+            } else if (line.rfind("declare feature_rest_scale ", 0) == 0) {
+                restScale = strtof(line.c_str() + 27, nullptr);
+            } else if (line.rfind("declare feature_rest_zero_point ", 0) == 0) {
+                restZeroPoint = strtof(line.c_str() + 32, nullptr);
+            }
+        }
+        lineStart = i + 1;
     }
-    
-    // Read packed vertices
-    std::vector<PackedVertex> packedVerts(vertexCount);
-    size_t readVerts = fread(packedVerts.data(), sizeof(PackedVertex), vertexCount, f);
-    fclose(f);
-    if (readVerts != vertexCount) {
-        return false;
+    if (elements.empty()) return false;
+
+    // ---- Element data offsets (elements are concatenated without padding) ----
+    size_t offset = hdrEnd;
+    for (auto& el : elements) {
+        el.dataOffset = offset;
+        offset += (size_t)el.count * el.stride;
     }
-    
-    // Decode all gaussians
+    if (offset > size) return false;
+
+    const PlyElementDesc* elChunk = nullptr;
+    const PlyElementDesc* elVertex = nullptr;
+    const PlyElementDesc* elVq = nullptr;
+    const PlyElementDesc* elRest = nullptr;
+    for (const auto& el : elements) {
+        if (el.name == "chunk") elChunk = &el;
+        else if (el.name == "vertex") elVertex = &el;
+        else if (el.name == "feature_rest_vq") elVq = &el;
+        else if (el.name == "feature_rest") elRest = &el;
+    }
+    if (!elChunk || !elVertex) return false;
+
+    auto propOffset = [](const PlyElementDesc& el, const char* name) -> size_t {
+        for (const auto& p : el.props) {
+            if (p.first == name) return p.second;
+        }
+        return SIZE_MAX;
+    };
+
+    const size_t offChunk = elChunk->dataOffset;
+    const size_t offVertex = elVertex->dataOffset;
+    if (elVertex->stride < sizeof(PackedVertex)) return false;
+
+    // Chunk records: 12-float (old) or 18-float (with per-chunk colour range)
+    // layouts; read the AABB / scale fields by name.
+    const char* kChunkNames[12] = {
+        "min_x", "min_y", "min_z", "max_x", "max_y", "max_z",
+        "min_scale_x", "min_scale_y", "min_scale_z", "max_scale_x", "max_scale_y", "max_scale_z",
+    };
+    size_t chunkOff[12];
+    for (int k = 0; k < 12; k++) {
+        chunkOff[k] = propOffset(*elChunk, kChunkNames[k]);
+        if (chunkOff[k] == SIZE_MAX) return false;
+    }
+    // Optional per-chunk colour ranges (newer writer variant)
+    const size_t offRMin = propOffset(*elChunk, "min_r");
+    const size_t offRMax = propOffset(*elChunk, "max_r");
+    const size_t offGMin = propOffset(*elChunk, "min_g");
+    const size_t offGMax = propOffset(*elChunk, "max_g");
+    const size_t offBMin = propOffset(*elChunk, "min_b");
+    const size_t offBMax = propOffset(*elChunk, "max_b");
+    const bool hasColorRange = offRMin != SIZE_MAX && offRMax != SIZE_MAX &&
+                               offGMin != SIZE_MAX && offGMax != SIZE_MAX &&
+                               offBMin != SIZE_MAX && offBMax != SIZE_MAX;
+
+    out.chunks.resize(elChunk->count);
+    for (uint32_t k = 0; k < elChunk->count; k++) {
+        const uint8_t* rec = data + offChunk + (size_t)k * elChunk->stride;
+        float* dst = reinterpret_cast<float*>(&out.chunks[k]);  // 12 floats
+        for (int f = 0; f < 12; f++) {
+            memcpy(&dst[f], rec + chunkOff[f], sizeof(float));
+        }
+    }
+    float crMin = 0.f, crMax = 1.f, cgMin = 0.f, cgMax = 1.f, cbMin = 0.f, cbMax = 1.f;
+    if (hasColorRange) {
+        // Range values are uniform across chunks in practice; read chunk 0.
+        const uint8_t* rec = data + offChunk;
+        memcpy(&crMin, rec + offRMin, sizeof(float));
+        memcpy(&crMax, rec + offRMax, sizeof(float));
+        memcpy(&cgMin, rec + offGMin, sizeof(float));
+        memcpy(&cgMax, rec + offGMax, sizeof(float));
+        memcpy(&cbMin, rec + offBMin, sizeof(float));
+        memcpy(&cbMax, rec + offBMax, sizeof(float));
+    }
+    const uint32_t chunkCount = elChunk->count;
+    const uint32_t vertexCount = elVertex->count;
+    const size_t vtxStride = elVertex->stride;
+
+    // ---- Gaussians ----
     out.gaussians.resize(vertexCount);
     out.gaussianCount = vertexCount;
-    
     for (uint32_t i = 0; i < vertexCount; i++) {
         uint32_t chunkIdx = i / 256;
         if (chunkIdx >= chunkCount) chunkIdx = chunkCount - 1;
         const auto& chunk = out.chunks[chunkIdx];
-        const auto& pv = packedVerts[i];
+        PackedVertex pv;
+        memcpy(&pv, data + offVertex + (size_t)i * vtxStride, sizeof(PackedVertex));
         auto& g = out.gaussians[i];
-        
         DecodePosition(pv.packedPosition, chunk, g.px, g.py, g.pz);
         DecodeScale(pv.packedScale, chunk, g.sx, g.sy, g.sz);
         DecodeRotation(pv.packedRotation, g.qw, g.qx, g.qy, g.qz);
-        
         float r, gb, b, a;
-        DecodeColor(pv.packedColor, r, gb, b, a);
-        g.cr = r;
-        g.cg = gb;
-        g.cb = b;
-        // Alpha channel in .splat is the opacity (already in [0,1] after /255)
+        if (colorIsAbgr) {
+            // Official pack8888 layout: byte0 = alpha, byte1 = blue,
+            // byte2 = green, byte3 = red (splat-transform compressed-chunk).
+            a = static_cast<float>(pv.packedColor & 0xFF) / 255.0f;
+            b = static_cast<float>((pv.packedColor >> 8) & 0xFF) / 255.0f;
+            gb = static_cast<float>((pv.packedColor >> 16) & 0xFF) / 255.0f;
+            r = static_cast<float>((pv.packedColor >> 24) & 0xFF) / 255.0f;
+            if (hasColorRange) {
+                // Newer writer variant: colours are normalised to the chunk range
+                r = crMin + r * (crMax - crMin);
+                gb = cgMin + gb * (cgMax - cgMin);
+                b = cbMin + b * (cbMax - cbMin);
+            }
+        } else {
+            DecodeColor(pv.packedColor, r, gb, b, a);
+        }
+        g.cr = r; g.cg = gb; g.cb = b;
         g.opacity = a;
         g.ca = a;
-        
         g.pad0 = 0.0f;
-        
-        // Track bounds
         if (g.px < out.boundsMin[0]) out.boundsMin[0] = g.px;
         if (g.py < out.boundsMin[1]) out.boundsMin[1] = g.py;
         if (g.pz < out.boundsMin[2]) out.boundsMin[2] = g.pz;
@@ -212,8 +369,123 @@ inline bool LoadSplatFile(const char* path, SplatData& out) {
         if (g.py > out.boundsMax[1]) out.boundsMax[1] = g.py;
         if (g.pz > out.boundsMax[2]) out.boundsMax[2] = g.pz;
     }
-    
+
+    // ---- SH degrees 1..3 (parsed for all supported layouts; the render
+    // pipeline decides whether to evaluate it) ----
+    // Layout A: inline per-vertex float f_rest_0..44 in the vertex element.
+    // Layout B: vector-quantised codebook (feature_rest_vq indices + int8 codebook).
+    {
+        // Layout A detection
+        size_t inlineOff[45];
+        bool inlineSh = true;
+        for (int m = 0; m < 45; m++) {
+            char name[32];
+            snprintf(name, sizeof(name), "f_rest_%d", m);
+            inlineOff[m] = propOffset(*elVertex, name);
+            if (inlineOff[m] == SIZE_MAX) {
+                inlineSh = false;
+                break;
+            }
+        }
+        if (inlineSh) {
+            out.sh.assign((size_t)vertexCount * 48, 0.0f);
+            for (uint32_t i = 0; i < vertexCount; i++) {
+                float* dst = &out.sh[(size_t)i * 48];
+                const uint8_t* rec = data + offVertex + (size_t)i * vtxStride;
+                for (int m = 0; m < 45; m++) {
+                    float v;
+                    memcpy(&v, rec + inlineOff[m], sizeof(float));
+                    dst[m] = v;
+                }
+            }
+        } else if (elVq && elRest) {
+            // Layout B: VQ codebook rest_scale / rest_zero_point reconstruction
+            size_t vqOff = elVq->props.empty() ? SIZE_MAX : elVq->props[0].second;
+            if (vqOff != SIZE_MAX && elVq->stride >= 4 && elRest->stride >= 45) {
+                out.sh.assign((size_t)vertexCount * 48, 0.0f);
+                const uint8_t* codebook = data + elRest->dataOffset;
+                for (uint32_t i = 0; i < vertexCount; i++) {
+                    uint32_t idx = 0;
+                    memcpy(&idx, data + elVq->dataOffset + (size_t)i * elVq->stride + vqOff, sizeof(uint32_t));
+                    if (idx >= elRest->count) continue;  // defensive: malformed input
+                    const int8_t* entry = reinterpret_cast<const int8_t*>(codebook + (size_t)idx * elRest->stride);
+                    float* dst = &out.sh[(size_t)i * 48];
+                    for (int m = 0; m < 45; m++) {
+                        dst[m] = (float)entry[m] * restScale + restZeroPoint;
+                    }
+                }
+            }
+        }
+    }
     return true;
+}
+
+// Load a .splat PLY file and decode all gaussians
+inline bool LoadSplatFile(const char* path, SplatData& out) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0) {
+        fclose(f);
+        return false;
+    }
+    std::vector<uint8_t> buf((size_t)sz);
+    size_t got = fread(buf.data(), 1, (size_t)sz, f);
+    fclose(f);
+    if (got != (size_t)sz) return false;
+    return LoadSplatPlyFromMemory(buf.data(), buf.size(), out);
+}
+
+// Load a glTF 2.0 GLB carrying a UWA_gaussian_splatting extension.
+// The extension stores a super-splat compressed PLY (chunk table + packed
+// vertices + optional vector-quantised SH) verbatim inside the BIN chunk;
+// this extracts that payload and decodes it with the shared decoder.
+inline bool LoadUwaSplatGlb(const char* path, SplatData& out)
+{
+    FILE* f = fopen(path, "rb");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz < 20) {
+        fclose(f);
+        return false;
+    }
+    std::vector<uint8_t> file((size_t)sz);
+    size_t got = fread(file.data(), 1, (size_t)sz, f);
+    fclose(f);
+    if (got != (size_t)sz) return false;
+
+    uint32_t magic = 0, version = 0, length = 0;
+    memcpy(&magic, file.data(), 4);
+    memcpy(&version, file.data() + 4, 4);
+    memcpy(&length, file.data() + 8, 4);
+    constexpr uint32_t GLB_MAGIC = 0x46546C67u;  // 'glTF'
+    constexpr uint32_t CHUNK_JSON = 0x4E4F534Au; // 'JSON'
+    constexpr uint32_t CHUNK_BIN = 0x004E4942u;  // 'BIN\0'
+    if (magic != GLB_MAGIC || version != 2) return false;
+
+    size_t off = 12;
+    const size_t end = (length <= (uint32_t)sz) ? length : (size_t)sz;
+    const uint8_t* binData = nullptr;
+    size_t binSize = 0;
+    while (off + 8 <= end) {
+        uint32_t clen = 0, ctype = 0;
+        memcpy(&clen, file.data() + off, 4);
+        memcpy(&ctype, file.data() + off + 4, 4);
+        if (off + 8 + clen > end) break;
+        if (ctype == CHUNK_BIN) {
+            binData = file.data() + off + 8;
+            binSize = clen;
+            break;
+        }
+        off += 8 + clen;
+    }
+    if (!binData || binSize == 0) return false;
+
+    return LoadSplatPlyFromMemory(binData, binSize, out, /*colorIsAbgr=*/true);
 }
 
 // ---------------------------------------------------------------------------

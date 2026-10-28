@@ -145,7 +145,7 @@ void main() {
     float z = -viewPos.z;
 
     // Near/far cull
-    if (z < 0.05 || z > 100.0) {
+    if (z < 0.05 || z > 2000.0) {
         gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
         vColor = vec4(0.0); vOffset = vec2(0.0); vOpacity = 0.0;
         return;

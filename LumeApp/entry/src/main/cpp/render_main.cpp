@@ -6,6 +6,7 @@
  */
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <dlfcn.h>
+#include <time.h>
 #include <hilog/log.h>
 #include <napi/native_api.h>
 #include <native_window/external_window.h>
@@ -152,6 +153,12 @@ struct OrbitCamera {
     bool dragging = false;
     bool pinching = false;
 
+    // Double-tap shortcut: toggle between far framing and the model centre
+    double lastTapTimeMs = 0.0;
+    float lastTapX = 0.0f, lastTapY = 0.0f;
+    float savedDistance = 0.0f;
+    bool insideView = false;
+
     // Rotate vector v around unit axis k by angle (Rodrigues)
     static void RotateVec(float& vx, float& vy, float& vz,
         float kx, float ky, float kz, float angle) {
@@ -199,7 +206,7 @@ struct OrbitCamera {
     void ComputeProjMatrix(float* out, float aspect) const {
         float fovRad = 60.0f * 3.14159265f / 180.f;
         float f = 1.f / tanf(fovRad * 0.5f);
-        float zn = 0.05f, zf = 100.f;
+        float zn = 0.05f, zf = 2000.f;
         memset(out, 0, 16 * sizeof(float));
         out[0]  = f / aspect;
         out[5]  = -f;  // Vulkan Y-flip
@@ -1068,12 +1075,28 @@ static void GenerateTestGaussians(SplatData& out)
 
 void LoadSplatModel()
 {
-    // Load standard 3DGS PLY (fruit bowl) — verifies the gaussian rendering pipeline
-    // with a known-good standard format model.
-    std::string plyPath = g_filesDir + "/assets/fruit_bowl.ply";
-    LOGI("Loading splat: %{public}s", plyPath.c_str());
+    // Demo model selection:
+    //   0 = fruit_bowl.ply  (standard 3DGS PLY, colour-calibration reference)
+    //   1 = godzilla.splat  (compressed .splat chunk format, indoor scene)
+    //   2 = doll.glb        (glTF 2.0 + UWA_gaussian_splatting extension)
+    constexpr int kDemoModel = 2;
 
-    if (LoadStandard3DgsPly(plyPath.c_str(), g_lume.splatData, 100.0f)) {
+    bool loaded = false;
+    if (kDemoModel == 1) {
+        std::string splatPath = g_filesDir + "/assets/godzilla.splat";
+        LOGI("Loading splat: %{public}s", splatPath.c_str());
+        loaded = LoadSplatFile(splatPath.c_str(), g_lume.splatData);
+    } else if (kDemoModel == 2) {
+        std::string glbPath = g_filesDir + "/assets/doll.glb";
+        LOGI("Loading splat glb: %{public}s", glbPath.c_str());
+        loaded = LoadUwaSplatGlb(glbPath.c_str(), g_lume.splatData);
+    } else {
+        std::string plyPath = g_filesDir + "/assets/fruit_bowl.ply";
+        LOGI("Loading splat: %{public}s", plyPath.c_str());
+        loaded = LoadStandard3DgsPly(plyPath.c_str(), g_lume.splatData, 100.0f);
+    }
+
+    if (loaded) {
         g_lume.splatLoaded = true;
         LOGI("Splat loaded: %{public}u gaussians, bounds=(%{public}.2f,%{public}.2f,%{public}.2f)-(%{public}.2f,%{public}.2f,%{public}.2f)",
             g_lume.splatData.gaussianCount,
@@ -1086,15 +1109,41 @@ void LoadSplatModel()
                 i, g.px, g.py, g.pz, g.sx, g.sy, g.sz, g.cr, g.cg, g.cb, g.opacity);
         }
 
-        // Reference viewpoint — recorded from the user's manual match to the
-        // web capture (ORBITCAM[after-touch] log, same framing as web.png).
-        // The app now always starts at this angle so color comparisons stay valid.
-        g_orbitCam.rightX = -0.717920f; g_orbitCam.rightY = 0.024674f; g_orbitCam.rightZ = -0.695681f;
-        g_orbitCam.upX    =  0.326028f; g_orbitCam.upY    = -0.871066f; g_orbitCam.upZ    = -0.367345f;
-        g_orbitCam.backX  = -0.615049f; g_orbitCam.backY  = -0.490535f; g_orbitCam.backZ  =  0.617311f;
-        g_orbitCam.targetX = 3.886603f; g_orbitCam.targetY = -1.901034f; g_orbitCam.targetZ = 0.267847f;
-        g_orbitCam.distance = 57.762306f;
-        g_orbitCam.LogState("reference-viewpoint");
+        if (kDemoModel == 0) {
+            // Reference viewpoint — recorded from the user's manual match to the
+            // web capture (ORBITCAM[after-touch] log, same framing as web.png).
+            // The app now always starts at this angle so color comparisons stay valid.
+            g_orbitCam.rightX = -0.717920f; g_orbitCam.rightY = 0.024674f; g_orbitCam.rightZ = -0.695681f;
+            g_orbitCam.upX    =  0.326028f; g_orbitCam.upY    = -0.871066f; g_orbitCam.upZ    = -0.367345f;
+            g_orbitCam.backX  = -0.615049f; g_orbitCam.backY  = -0.490535f; g_orbitCam.backZ  =  0.617311f;
+            g_orbitCam.targetX = 3.886603f; g_orbitCam.targetY = -1.901034f; g_orbitCam.targetZ = 0.267847f;
+            g_orbitCam.distance = 57.762306f;
+        } else {
+            // Auto-frame from the model bounds: axis-aligned identity basis,
+            // target at the bounding-box centre, distance fitted to the extent.
+            float cx = (g_lume.splatData.boundsMin[0] + g_lume.splatData.boundsMax[0]) * 0.5f;
+            float cy = (g_lume.splatData.boundsMin[1] + g_lume.splatData.boundsMax[1]) * 0.5f;
+            float cz = (g_lume.splatData.boundsMin[2] + g_lume.splatData.boundsMax[2]) * 0.5f;
+            float ex = g_lume.splatData.boundsMax[0] - g_lume.splatData.boundsMin[0];
+            float ey = g_lume.splatData.boundsMax[1] - g_lume.splatData.boundsMin[1];
+            float ez = g_lume.splatData.boundsMax[2] - g_lume.splatData.boundsMin[2];
+            float maxExtent = ex > ey ? (ex > ez ? ex : ez) : (ey > ez ? ey : ez);
+            g_orbitCam.rightX = 1.f; g_orbitCam.rightY = 0.f; g_orbitCam.rightZ = 0.f;
+            g_orbitCam.upX = 0.f; g_orbitCam.upY = 1.f; g_orbitCam.upZ = 0.f;
+            g_orbitCam.backX = 0.f; g_orbitCam.backY = 0.f; g_orbitCam.backZ = 1.f;
+            g_orbitCam.targetX = cx;
+            g_orbitCam.targetY = cy;
+            g_orbitCam.targetZ = cz;
+            g_orbitCam.distance = (maxExtent > 0.01f ? maxExtent * 1.6f : 50.f);
+            if (kDemoModel == 2) {
+                // Deterministic comparison view for the doll: inside the
+                // environment sphere, close to the subject (matches the
+                // reference capture framing).
+                g_orbitCam.targetX = 0.f; g_orbitCam.targetY = 0.f; g_orbitCam.targetZ = 0.f;
+                g_orbitCam.distance = 42.f;
+            }
+        }
+        g_orbitCam.LogState("initial");
 
         // Feed data to the RenderNode via shared globals
         static_assert(sizeof(GaussianSplatGPU) == sizeof(GpuGaussianData),
@@ -1122,7 +1171,7 @@ void LoadSplatModel()
         LOGI("Gaussian splat RNG created: valid=%{public}d",
             g_lume.splatRngHandle ? 1 : 0);
     } else {
-        LOGE("Failed to load splat: %{public}s", plyPath.c_str());
+        LOGE("Failed to load splat model %{public}d", kDemoModel);
     }
 }
 
@@ -1386,7 +1435,7 @@ void DispatchTouchEvent(OH_NativeXComponent* component, void* window)
                 float ratio = g_orbitCam.lastDist / dist;
                 g_orbitCam.distance *= ratio;
                 if (g_orbitCam.distance < 0.1f) g_orbitCam.distance = 0.1f;
-                if (g_orbitCam.distance > 100.f) g_orbitCam.distance = 100.f;
+                if (g_orbitCam.distance > 2000.f) g_orbitCam.distance = 2000.f;
             }
             g_orbitCam.lastDist = dist;
 
@@ -1413,6 +1462,37 @@ void DispatchTouchEvent(OH_NativeXComponent* component, void* window)
     case OH_NATIVEXCOMPONENT_CANCEL:
         g_orbitCam.dragging = false;
         g_orbitCam.pinching = false;
+        // Double-tap: toggle between the far framing and the model centre
+        {
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            const double nowMs = (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+            const float dx = x - g_orbitCam.lastTapX;
+            const float dy = y - g_orbitCam.lastTapY;
+            if (touchEvent.type == OH_NATIVEXCOMPONENT_UP &&
+                nowMs - g_orbitCam.lastTapTimeMs < 350.0 &&
+                dx*dx + dy*dy < 1600.0f) {
+                if (!g_orbitCam.insideView) {
+                    g_orbitCam.savedDistance = g_orbitCam.distance;
+                    // Model-scale dependent: jump to 5% of the far framing
+                    // (≈1.7 for the fruit bowl, ≈8 for godzilla, ≈70 for doll)
+                    g_orbitCam.distance = (g_orbitCam.savedDistance > 20.f)
+                                              ? g_orbitCam.savedDistance * 0.03f
+                                              : 1.5f;
+                    g_orbitCam.insideView = true;
+                    LOGI("Camera: jump to centre (distance %.2f)", g_orbitCam.distance);
+                } else {
+                    g_orbitCam.distance = (g_orbitCam.savedDistance > 0.5f) ? g_orbitCam.savedDistance : 50.f;
+                    g_orbitCam.insideView = false;
+                    LOGI("Camera: jump back to far view");
+                }
+                g_orbitCam.lastTapTimeMs = 0.0;
+            } else if (touchEvent.type == OH_NATIVEXCOMPONENT_UP) {
+                g_orbitCam.lastTapTimeMs = nowMs;
+                g_orbitCam.lastTapX = x;
+                g_orbitCam.lastTapY = y;
+            }
+        }
         g_orbitCam.LogState("after-touch");
         break;
     default:

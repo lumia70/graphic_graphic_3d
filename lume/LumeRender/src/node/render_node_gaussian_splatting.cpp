@@ -521,9 +521,11 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
             const float* vm = camData.view;
             const float* pm = camData.proj;
 
-            // Coarse change detection: re-sort only on rotation or LATERAL eye
-            // movement. Pure axial zoom (along the view axis) preserves depth
-            // order, so it reuses the previous sort — no per-frame CPU cost.
+            // Coarse change detection: re-sort on rotation, or on ANY camera
+            // movement large enough to change the cull set. Axial zoom must
+            // also trigger a refresh: gaussians culled as sub-pixel at a far
+            // distance become large and visible when zooming in, and a frozen
+            // cull list would never bring them back.
             float dirX = -vm[2], dirY = -vm[6], dirZ = -vm[10];
             const float dlen = sqrtf(dirX*dirX + dirY*dirY + dirZ*dirZ);
             if (dlen > 1e-8f) { dirX /= dlen; dirY /= dlen; dirZ /= dlen; }
@@ -534,10 +536,11 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
             const float latx = dex - axial*dirX, laty = dey - axial*dirY, latz = dez - axial*dirZ;
             const float latT = sqrtf(latx*latx + laty*laty + latz*latz);
             const float eyeLen = sqrtf(ex*ex + ey*ey + ez*ez);
-            const float latThreshold = 0.001f * (eyeLen > 1.f ? eyeLen : 1.f);
+            const float moveScale = 0.001f * (eyeLen > 1.f ? eyeLen : 1.f);
             const bool viewChanged = !sortBufferUploaded_ ||
-                (dirDot < 0.99999f) ||      // rotated ~0.25 degrees
-                (latT > latThreshold);       // lateral (pan/zoom-orbit) movement
+                (dirDot < 0.99999f) ||              // rotated ~0.25 degrees
+                (latT > moveScale) ||               // lateral (pan / orbit) movement
+                (fabsf(axial) > 20.f * moveScale);  // zoom: refresh cull set (2%)
 
             if (viewChanged) {
                 lastDirX_ = dirX; lastDirY_ = dirY; lastDirZ_ = dirZ;
@@ -561,7 +564,7 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
                     const float px = data[i].px, py = data[i].py, pz = data[i].pz;
                     const float vz = f0*px + f1*py + f2*pz + t2;
                     const float z = -vz;  // positive distance in front
-                    if (z < 0.05f || z > 100.f) continue;
+                    if (z < 0.05f || z > 2000.f) continue;
                     // Conservative world radius (3 sigma) for frustum margin
                     const float msx = data[i].sx, msy = data[i].sy, msz = data[i].sz;
                     const float ms = msx > msy ? (msx > msz ? msx : msz) : (msy > msz ? msy : msz);
