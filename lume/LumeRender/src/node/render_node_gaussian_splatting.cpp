@@ -108,8 +108,10 @@ void BuildPerspective(float* out, float fovYDeg, float aspect, float zn, float z
     out[14] = (zn * zf) / (zn - zf);
 }
 
-// Number of depth buckets for the back-to-front counting sort
-constexpr uint32_t SORT_BUCKETS = 256;
+// Number of depth buckets for the back-to-front counting sort.
+// 4096 buckets make slices thin enough that within-bucket order errors
+// (source of banding stripes on dense surfaces) become invisible.
+constexpr uint32_t SORT_BUCKETS = 4096;
 
 // ---------------------------------------------------------------------------
 // DESIGN NOTE: why the depth sort runs on the CPU (recorded for later review)
@@ -566,8 +568,8 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
                     if (fabsf(vx) > z * tanX + wr) continue;
                     const float vy = u0*px + u1*py + u2*pz + t1;
                     if (fabsf(vy) > z * tanY + wr) continue;
-                    // Size cull: projected 3-sigma radius below half a pixel
-                    if (focalY * ms * 3.f / z < 0.5f) continue;
+                    // Size cull: projected 2*sqrt(2)*sigma extent below 2px (engine minPixelSize=2.0)
+                    if (focalY * ms * 2.83f / z < 2.0f) continue;
                     if (visibleCount_ < sortIndices_.size()) {
                         sortIndices_[visibleCount_] = i;
                         sortKeys_[visibleCount_] = z;
