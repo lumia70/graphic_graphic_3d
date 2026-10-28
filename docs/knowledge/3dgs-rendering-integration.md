@@ -172,7 +172,8 @@ fragment：raw 颜色(0.5+C0·f_dc) × alpha  →  UNORM 离屏（CLEAR 为 web 
 - **SOG 格式加载**（`fruit_bowl.sog`）：开源精简格式，字典/调色板解压。
 - **godzilla.splat / doll.glb**：在新管线（UNORM + DC + 65K 排序）下复测。
 - **与 PC-web 观感差距**：已定位为手机平台差异（移动 GPU 精度、canvas 分辨率上限、
-  浏览器色彩处理）；如需进一步贴近，可实现 web viewer 的 grading 后处理
+  浏览器色彩处理）；详见 [移动端与桌面的渲染差异分析](3dgs-mobile-vs-desktop.md)。
+  如需进一步贴近，可实现 web viewer 的 grading 后处理
   （brightness/contrast/saturation/tint，默认关闭，saturation ≈1.06 即可补齐观感）。
 - **性能深化**：多线程/ SIMD 排序；大场景（5M+）需 LOD 流式加载。
 - **提交前**：GPU/Shader 行为变更按仓库规则应先执行
