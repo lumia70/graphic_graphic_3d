@@ -81,6 +81,7 @@ private:
     BASE_NS::vector<uint32_t> sortScatter_;  // final sorted order
     BASE_NS::vector<float> sortKeys_;        // per-visible depth key
     BASE_NS::vector<uint32_t> bucketCounts_;
+    BASE_NS::vector<uint32_t> sortCursor_;
     BASE_NS::vector<uint32_t> bucketStarts_;
     uint32_t visibleCount_ = 0;
     // Coarse view-change tracking (re-sort threshold)

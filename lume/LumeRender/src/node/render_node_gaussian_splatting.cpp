@@ -109,9 +109,10 @@ void BuildPerspective(float* out, float fovYDeg, float aspect, float zn, float z
 }
 
 // Number of depth buckets for the back-to-front counting sort.
-// 4096 buckets make slices thin enough that within-bucket order errors
-// (source of banding stripes on dense surfaces) become invisible.
-constexpr uint32_t SORT_BUCKETS = 4096;
+// 65536 buckets over the visible depth range give sub-millimetre slices —
+// effectively an exact depth order (bucket-order errors showed up as
+// dark-region banding/stripes in deep gaussian stacks).
+constexpr uint32_t SORT_BUCKETS = 65536;
 
 // ---------------------------------------------------------------------------
 // DESIGN NOTE: why the depth sort runs on the CPU (recorded for later review)
@@ -196,6 +197,7 @@ void RenderNodeGaussianSplatting::InitNode(IRenderNodeContextManager& mgr)
         sortScatter_.resize(cnt);
         sortKeys_.resize(cnt);
         bucketCounts_.resize(SORT_BUCKETS + 1);
+        sortCursor_.resize(SORT_BUCKETS + 1);
         bucketStarts_.resize(SORT_BUCKETS + 1);
         for (uint32_t i = 0; i < cnt; i++) sortIndices_[i] = i;
 
@@ -379,6 +381,7 @@ void RenderNodeGaussianSplatting::PreExecuteFrame()
         sortScatter_.resize(cnt);
         sortKeys_.resize(cnt);
         bucketCounts_.resize(SORT_BUCKETS + 1);
+        sortCursor_.resize(SORT_BUCKETS + 1);
         bucketStarts_.resize(SORT_BUCKETS + 1);
         for (uint32_t i = 0; i < cnt; i++) sortIndices_[i] = i;
 
@@ -594,13 +597,13 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
                         bucketStarts_[b] = total;
                         total += bucketCounts_[b];
                     }
-                    // Scatter visible list into final back-to-front order
-                    uint32_t cursor[SORT_BUCKETS];
-                    std::memcpy(cursor, bucketStarts_.data(), SORT_BUCKETS * sizeof(uint32_t));
+                    // Scatter visible list into final back-to-front order.
+                    // Cursor lives on the heap: 65536 entries is too large for the stack.
+                    std::memcpy(sortCursor_.data(), bucketStarts_.data(), SORT_BUCKETS * sizeof(uint32_t));
                     for (uint32_t j = 0; j < visibleCount_; j++) {
                         uint32_t b = (uint32_t)((zmax - sortKeys_[j]) * invRange);
                         if (b >= SORT_BUCKETS) b = SORT_BUCKETS - 1;
-                        sortScatter_[cursor[b]++] = sortIndices_[j];
+                        sortScatter_[sortCursor_[b]++] = sortIndices_[j];
                     }
                     sortBufferUploaded_ = true;
                 } else if (visibleCount_ > sortIndices_.size()) {
