@@ -5,7 +5,9 @@ import lumeapp from 'liblumeapp.so';
 struct Index {
   private xComponentId: string = 'lumeapp_xcomponent';
   private intervalId: number = -1;
-  @State activeModel: string = 'doll';
+  @State activeModel: string = 'doll.glb';
+
+  private static readonly MODELS: string[] = ['fruit_bowl.ply', 'fruit_bowl.sog', 'godzilla.splat', 'doll.glb'];
 
   aboutToAppear(): void {
     let context = getContext(this) as Context;
@@ -47,24 +49,33 @@ struct Index {
         .width('100%')
         .height('100%')
 
-      Row({ space: 10 }) {
-        Button('Fruit bowl')
-          .fontSize(13)
-          .height(34)
-          .backgroundColor(this.activeModel === 'fruit_bowl' ? '#FF6A00' : '#66000000')
-          .onClick(() => this.selectModel('fruit_bowl'))
+      Row({ space: 8 }) {
+        Button('Bowl PLY')
+          .fontSize(12)
+          .height(32)
+          .width(84)
+          .backgroundColor(this.activeModel === 'fruit_bowl.ply' ? '#FF6A00' : '#66000000')
+          .onClick(() => this.selectModel('fruit_bowl.ply'))
+        Button('Bowl SOG')
+          .fontSize(12)
+          .height(32)
+          .width(84)
+          .backgroundColor(this.activeModel === 'fruit_bowl.sog' ? '#FF6A00' : '#66000000')
+          .onClick(() => this.selectModel('fruit_bowl.sog'))
         Button('Godzilla')
-          .fontSize(13)
-          .height(34)
-          .backgroundColor(this.activeModel === 'godzilla' ? '#FF6A00' : '#66000000')
-          .onClick(() => this.selectModel('godzilla'))
+          .fontSize(12)
+          .height(32)
+          .width(84)
+          .backgroundColor(this.activeModel === 'godzilla.splat' ? '#FF6A00' : '#66000000')
+          .onClick(() => this.selectModel('godzilla.splat'))
         Button('Doll')
-          .fontSize(13)
-          .height(34)
-          .backgroundColor(this.activeModel === 'doll' ? '#FF6A00' : '#66000000')
-          .onClick(() => this.selectModel('doll'))
+          .fontSize(12)
+          .height(32)
+          .width(84)
+          .backgroundColor(this.activeModel === 'doll.glb' ? '#FF6A00' : '#66000000')
+          .onClick(() => this.selectModel('doll.glb'))
       }
-      .margin({ bottom: 32 })
+      .margin({ bottom: 28 })
     }
     .width('100%')
     .height('100%')

@@ -173,8 +173,8 @@ void main() {
     vec3 viewDir = normalize(worldPos - cameraPos.xyz);
     vec3 color = g.color.rgb + evalSH(gaussianIdx, viewDir);
     color = max(color, vec3(0.0));
-    // A/B TEST: set to 1.0 to disable SH (DC-only rendering, web-stability test)
-    color = mix(g.color.rgb, color, 0.0);
+    // Per-model SH enablement comes from shScale (binding 4): models configured
+    // with degree weights 0 evaluate to plain DC, others add the SH bands.
 
     // ---- 3D covariance in world space ----
     mat3 R = quatToMat3(g.rotation);

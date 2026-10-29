@@ -24,6 +24,7 @@
 #include <rawfile/raw_file.h>
 
 #include "splat_loader.h"
+#include "sog_loader.h"
 #include "gaussian_splat_data.h"
 
 // --- LumeBase ---
@@ -881,6 +882,14 @@ static const DemoModelConfig kDemoModels[] = {
         { -0.615049f, -0.490535f, 0.617311f },
         { 3.886603f, -1.901034f, 0.267847f },
         0.f, 57.762306f },
+    // Same scene as the PLY above, compressed as SOG v2 (13 MB instead of 177 MB).
+    // The recorded viewpoint is shared so the two can be compared directly.
+    { "fruit_bowl.sog", 60.0f, 0.0f, 0.0f, true,
+        { -0.717920f, 0.024674f, -0.695681f },
+        { 0.326028f, -0.871066f, -0.367345f },
+        { -0.615049f, -0.490535f, 0.617311f },
+        { 3.886603f, -1.901034f, 0.267847f },
+        0.f, 57.762306f },
     // Compressed .splat, no SH data.
     { "godzilla.splat", 80.0f, 0.0f, 0.0f, false, {}, {}, {}, {}, 0.0f, 0.0f },
     // UWA glTF with vector-quantised SH. The bounds are dominated by the
@@ -888,7 +897,7 @@ static const DemoModelConfig kDemoModels[] = {
     { "doll.glb", 60.0f, 1.0f, 1.0f, false, {}, {}, {}, {}, 42.0f, 250.0f },
 };
 static constexpr int kDemoModelCount = (int)(sizeof(kDemoModels) / sizeof(kDemoModels[0]));
-static int g_modelIndex = 2;  // doll by default
+static int g_modelIndex = 3;  // doll.glb by default (must track kDemoModels order)
 static int g_pendingModelIndex = -1;  // set from ArkTS, applied on the render thread
 
 // Robust framing statistics. Raw bounds are misleading: a few outlier
@@ -989,6 +998,11 @@ void LoadSplatModel()
     bool loaded = false;
     if (strstr(cfg.file, ".glb") != nullptr) {
         loaded = LoadUwaSplatGlb(path.c_str(), g_lume.splatData);
+    } else if (strstr(cfg.file, ".sog") != nullptr) {
+        // SH rest costs 48 floats per gaussian; only decode it when the model
+        // configuration actually evaluates higher bands.
+        loaded = sog::LoadSogFile(path.c_str(), g_lume.splatData, 100.0f,
+            cfg.shDeg1 > 0.0f || cfg.shDeg23 > 0.0f);
     } else if (strstr(cfg.file, ".splat") != nullptr) {
         loaded = LoadSplatFile(path.c_str(), g_lume.splatData);
     } else {

@@ -242,7 +242,76 @@ fruit_bowl 的 99% 高斯落在 `r < 0.2`（乘 100 世界缩放后 ≈ 20），
 - doll 的 bounds 由环境球壳（半径 437）主导，r80=40.9 仍是壳层，故近景/远景都用显式值。
 - 双击在近景/远景之间切换（`farDistance` / `insideDistance`），不再依赖"上次停留距离"。
 
-## 7. 性能
+## 7. SOG v2（`.sog`）加载
+
+`.sog` 是一个 ZIP 容器（条目为 stored，未压缩），内部是 `meta.json` + 若干 WebP 数据纹理：
+
+| 条目 | 内容 |
+| --- | --- |
+| `meta.json` | `count`、`means.mins/maxs`、`scales/sh0/shN.codebook`、`shN.count/bands` |
+| `means_l.webp` / `means_u.webp` | 位置低/高字节，RGB 三通道组成 16-bit 量化 |
+| `scales.webp` | RGB = 256 项 log-scale 码本索引 |
+| `quats.webp` | RGB = smallest-three 三个分量，A = 最大分量 tag（252..255） |
+| `sh0.webp` | RGB = DC 码本索引，A = 不透明度（0..255） |
+| `shN_centroids.webp` | 宽 `64*shCoeffs`、高 `count/64`，RGB = SH 码本索引 |
+| `shN_labels.webp` | `R | G<<8` = 每个高斯的调色板行号 |
+
+解码要点（对照 `playcanvas/splat-transform` 的 `read-sog.ts`）：
+
+1. 位置在文件里是 **log 空间**：`pos = sign(v)*(exp(|v|)-1)`，其中 `v = min + span*q/65535`，
+   `q = lo | hi<<8`（16-bit）。与其他模型一致还要乘世界缩放 100。
+2. scale 码本是 log 值：`exp(codebook[idx]) * worldScale`。
+3. 旋转是 smallest-three：`a = (byte/255*2-1)/√2`，最大分量取 `+sqrt(1-sumSq)`，
+   映射表 `QUAT_IDX = [1,2,3, 0,2,3, 0,1,3, 0,1,2]`，输出 (w,x,y,z)。
+4. 颜色：`color = 0.5 + SH_C0 * codebook[byte]`；不透明度直接是 `byte/255`
+   （与 PLY 路径一致，shader 里不再做 sigmoid）。
+5. SH rest 在调色板里是 **通道优先**（前 15 个是 R 系数），本工程的 `sh` 缓冲是
+   **系数优先**（`sh[j*3+c]`），所以写入时要转置：`sh[j*3+c] = codebook[centroid_c[colBase+j]]`。
+
+### 7.1 坑：系统解码器返回预乘 alpha
+
+用 ImageKit NDK（`OH_ImageSourceNative_CreateFromData` + `OH_PixelmapNative_ReadPixels`）
+解码这些 WebP 时，得到的是 **premultiplied** RGBA，而 SOG 把 opacity / quat tag
+都存在 alpha 通道里 —— 结果是 RGB 数据被乘脏（`sh0` 的 RGB 索引整体偏小），
+画面颜色几乎全黑、只剩形状。
+
+- 现象：`sh0` 原始字节 192/179/123（alpha=37），设备上读到 27/25/17，且
+  `27 = floor(192*37/255)`、`25 = floor(179*37/255)`、`17 = floor(123*37/255)`。
+- 修复：读回后反预乘 `v = (p*255 + a/2)/a`（`a==0`/`a==255` 跳过）。
+  量化误差实测：可见高斯（alpha≥0.25）颜色误差均值 0.009，alpha≥0.1 为 0.019。
+- 平台没有提供"解码为不预乘"的开关；请求 `PIXEL_FORMAT_RGB_888` 会直接失败
+  （`IMAGE_UNSUPPORTED_DATA_FORMAT`），`libwebp` 也不在 SDK/系统库中。
+
+### 7.2 验证结果（fruit_bowl.sog vs fruit_bowl.ply，同视角）
+
+| 指标 | SOG | PLY |
+| --- | --- | --- |
+| 高斯数 | 750,322 | 750,322 |
+| 包围盒 | (-11.21,-13.62,-15.83)~(20.16,7.19,15.75) | 同左，z 差 0.01（量化） |
+| 画面均值 | (167.1, 117.5, 54.7) | (170.3, 120.8, 56.7) |
+| 画面 std | (59.5, 53.3, 43.5) | (59.5, 53.8, 44.4) |
+| 逐像素平均差 | 2.98/255（1.2%），p99 = 9 | — |
+
+体积代价：13 MB vs 177 MB。SH 调色板路径也用「权重 1 开启」验证过
+（画面变化 1.9%、p99 = 20，属于正常的视角相关变化），最终配置仍用 DC
+以便和 PLY 参考对比。
+
+### 7.3 SH 开关曾被写死
+
+`gaussian_render.vert` 里曾留有一行 A/B 测试代码
+`color = mix(g.color.rgb, color, 0.0);`（commit `53a61530` 引入），
+它无条件把逐模型 SH 配置变成空转——把 SH 权重调到 3.0、甚至把 SH 缓冲全填 1.0，
+画面都逐像素不变。现已删除，SH 由 `shScale`（binding 4）按模型生效。
+
+### 7.4 已知问题：PLY 的 `f_rest` 是通道优先
+
+标准 3DGS PLY 的 `f_rest_0..44` 是 **通道优先**（0..14 为 R 系数），
+而 shader 按 **系数优先**（`sh[j*3+c]`）读取。当前 PLY 加载器按文件顺序原样拷贝，
+因此对 fruit_bowl 开启 SH 时高阶项是错位的（表现为"红薯明显变暗"）。
+fruit_bowl 默认 DC-only，所以没有视觉影响；若要启用该模型的 SH，需要先在
+`LoadStandard3DgsPly` 里把 `f_rest` 转置。SOG 与新写的解码器已按系数优先写入。
+
+## 8. 性能
 
 | 优化 | 效果 |
 | --- | --- |
@@ -252,7 +321,7 @@ fruit_bowl 的 99% 高斯落在 `r < 0.2`（乘 100 世界缩放后 ≈ 20），
 | 65536 桶排序 | 排序成本与 4K 桶基本持平（仍是两遍线性扫描）|
 | 三缓冲 | 消除运动闪烁（非性能项，但避免降频抖动）|
 
-## 8. 调试方法论（可复用）
+## 9. 调试方法论（可复用）
 
 1. **同视角对比**：固定参考视角（相机状态日志 → 硬编码为启动默认），
    用 `snapshot_display` 抓原始 framebuffer；对比图不受"重启后视角回默认"干扰。
@@ -265,9 +334,9 @@ fruit_bowl 的 99% 高斯落在 `r < 0.2`（乘 100 世界缩放后 ≈ 20），
 6. **A/B 构建**：把可疑机制做成 shader 常数（SH 阶数、falloff 变体），
    单次部署验证一个假设。
 
-## 9. 遗留与后续方向
+## 10. 遗留与后续方向
 
-- **SOG 格式加载**（`fruit_bowl.sog`）：开源精简格式，字典/调色板解压。
+- ~~**SOG 格式加载**~~：已完成，见第 7 节（13 MB，与 PLY 版本画面差 1.2%）。
 - **多模型**：godzilla.splat / doll.glb / fruit_bowl.ply 已在 UNORM + DC/SH + 65K 排序管线下复测，
   支持运行时切换（ArkTS 按钮）。
 - **与 PC-web 观感差距**：已定位为手机平台差异（移动 GPU 精度、canvas 分辨率上限、
@@ -278,12 +347,13 @@ fruit_bowl 的 99% 高斯落在 `r < 0.2`（乘 100 世界缩放后 ≈ 20），
 - **提交前**：GPU/Shader 行为变更按仓库规则应先执行
   `ohos-dev-graphics-stability-code-review`。
 
-## 10. 代码索引
+## 11. 代码索引
 
 | 路径 | 说明 |
 | --- | --- |
 | `LumeApp/entry/src/main/cpp/render_main.cpp` | 应用侧：引擎初始化、相机（自由滚转 + 鲁棒取景）、触摸交互、模型运行时切换、按需渲染 |
 | `LumeApp/entry/src/main/cpp/splat_loader.h` | 标准 3DGS PLY 与压缩 .splat 解码 |
+| `LumeApp/entry/src/main/cpp/sog_loader.h` | SOG v2 解码：ZIP + 迷你 JSON + ImageKit WebP（含反预乘）|
 | `LumeApp/entry/src/main/cpp/gaussian_splat_data.*` | 跨 .so 共享数据（C 链接）|
 | `lume/LumeRender/src/node/render_node_gaussian_splatting.*` | 核心 RenderNode：剔除/排序/双 pass/PSO |
 | `lume/LumeRender/src/node/core_render_node_factory.cpp` | 节点注册 |

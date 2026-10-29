@@ -636,6 +636,9 @@ target_link_libraries(lumeapp PUBLIC
     libGLESv3.so
     libvulkan.so
     libhilog_ndk.z.so
+    # SOG assets store their textures as WebP (decoded via the ImageKit NDK)
+    libimage_source.so
+    libpixelmap.so
 )
 
 # Include headers from Render/3D/Meta without linking (loaded via dlopen at runtime)

@@ -21,7 +21,7 @@ LumeApp/entry/src/main/resources/rawfile/assets/
 | `fruit_bowl.ply` | 标准 3DGS PLY（`x,y,z,rot_*,scale_*,f_dc_*,f_rest_*,opacity`）| 177 MB | 750,322 | 色彩标定基准：与 web viewer 同视角对比；SH 仅用 DC |
 | `godzilla.splat` | super-splat 压缩 chunk PLY（`.splat`）| 17 MB | 1,067,182 | 压缩格式 + 大场景验证；无 SH 数据；FOV 80° |
 | `doll.glb` | glTF 2.0 + `UWA_gaussian_splatting` 扩展 | 12 MB | 426,605 | 压缩格式 + VQ-SH + 环境球壳；FOV 60°，SH 全开 |
-| `fruit_bowl.sog` | SOG（字典/调色板压缩）| 13 MB | — | **尚未接入加载器**，仅作格式研究素材 |
+| `fruit_bowl.sog` | SOG v2（ZIP + WebP 调色板压缩）| 13 MB | 750,322 | `fruit_bowl.ply` 的压缩版，用于体积/解码对比 |
 | `cube.glb` | 普通 glTF 立方体 | 1.3 KB | — | 早期 PBR 管线验证，3DGS 路径不使用 |
 
 ## 已知的量化特征（复现问题时的判据）
