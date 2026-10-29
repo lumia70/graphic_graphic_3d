@@ -149,10 +149,11 @@ render_node_gaussian_splatting.cpp（LumeRender 内，渲染线程）
    - SH rest 调色板是**通道优先**，写入本项目缓冲要转成系数优先；
    - **最大坑：平台 WebP 解码返回预乘 alpha**（见 4.3-6）。
 
-8. **PLY `f_rest` 顺序（已知问题）**
-   - 标准 PLY 的 `f_rest_0..44` 是通道优先（0..14 全是 R），shader 按系数优先 `sh[j*3+c]` 读。
-   - 当前 PLY 加载器原样拷贝 → 该模型开启 SH 时高阶项错位（表现为"红薯明显变暗"）。
-   - fruit_bowl 默认 DC-only 所以无影响；SOG/压缩格式已按系数优先写入。
+8. **PLY `f_rest` 顺序（已修）**
+   - 标准 PLY / chunk 的 `f_rest_0..44` 是通道优先（0..14 全是 R），shader 按系数优先 `sh[j*3+c]` 读。
+   - 早期三条加载路径都原样拷贝 → 开 SH 时系数错位（"红薯变暗 12–39%"的真因）。
+   - 现统一用 `StoreShRestChannelMajorToCoefficientMajor()` 转置；验证：同场景 PLY 与 SOG 的
+     SH 增量相对 DC 的平均差 4.84 vs 4.85（p99 都是 20），两个独立解码器互相印证。
 
 ### 4.3 色彩与观感
 
@@ -292,7 +293,7 @@ hdc file recv /data/local/tmp/a.jpeg "D:\Source\3DGS\captures\a.jpeg"
 
 | 项 | 说明 |
 | --- | --- |
-| PLY `f_rest` 转置 | 启用 fruit_bowl 的 SH 前必须修（见 4.2-8） |
+| ~~PLY `f_rest` 转置~~ | 已修（4.2-8），三条加载路径统一转置 |
 | 性能日志去留 | `GS::Sort stats` / `GS::ExecuteFrame cost` 目前常驻，交付前建议降级或删除 |
 | 大场景 LOD | 5M+ 高斯需要分块/流式与预算裁剪 |
 | splat 解析 fuzz | 截断、畸形头、超大声明（SOG 的 ZIP/WebP 同样需要） |

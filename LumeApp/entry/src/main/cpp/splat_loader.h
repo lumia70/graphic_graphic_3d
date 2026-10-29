@@ -200,6 +200,17 @@ struct PlyElementDesc {
 //  0 = RGBA bytes (b0=R, b1=G, b2=B, b3=A)      — legacy .splat variant
 //  1 = official pack8888 (b0=A, b1=B, b2=G, b3=R)
 //  2 = alpha-first, BGR (b0=A, b1=R, b2=G, b3=B)
+// PLY / chunk SH rest is stored channel-major (f_rest_0..14 = red, 15..29 = green,
+// 30..44 = blue), while the shader reads coefficient-major (sh[j*3 + c]).
+inline void StoreShRestChannelMajorToCoefficientMajor(float* dst, const float* src)
+{
+    for (int c = 0; c < 3; c++) {
+        for (int j = 0; j < 15; j++) {
+            dst[j * 3 + c] = src[c * 15 + j];
+        }
+    }
+}
+
 inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& out,
     const int colorOrder = 0)
 {
@@ -428,13 +439,12 @@ inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& 
         if (inlineSh) {
             out.sh.assign((size_t)vertexCount * 48, 0.0f);
             for (uint32_t i = 0; i < vertexCount; i++) {
-                float* dst = &out.sh[(size_t)i * 48];
+                float channelMajor[45];
                 const uint8_t* rec = data + offVertex + (size_t)i * vtxStride;
                 for (int m = 0; m < 45; m++) {
-                    float v;
-                    memcpy(&v, rec + inlineOff[m], sizeof(float));
-                    dst[m] = v;
+                    memcpy(&channelMajor[m], rec + inlineOff[m], sizeof(float));
                 }
+                StoreShRestChannelMajorToCoefficientMajor(&out.sh[(size_t)i * 48], channelMajor);
             }
         } else if (elVq && elRest) {
             // Layout B: VQ codebook rest_scale / rest_zero_point reconstruction
@@ -448,8 +458,10 @@ inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& 
                     if (idx >= elRest->count) continue;  // defensive: malformed input
                     const int8_t* entry = reinterpret_cast<const int8_t*>(codebook + (size_t)idx * elRest->stride);
                     float* dst = &out.sh[(size_t)i * 48];
-                    for (int m = 0; m < 45; m++) {
-                        dst[m] = (float)entry[m] * restScale + restZeroPoint;
+                    for (int c = 0; c < 3; c++) {
+                        for (int j = 0; j < 15; j++) {
+                            dst[j * 3 + c] = (float)entry[c * 15 + j] * restScale + restZeroPoint;
+                        }
                     }
                 }
             }
@@ -649,12 +661,14 @@ inline bool LoadStandard3DgsPly(const char* path, SplatData& out, float worldSca
             g.cg = 0.5f + SH_C0 * v[idc1];
             g.cb = 0.5f + SH_C0 * v[idc2];
 
-            // SH degree 1..3 coefficients (f_rest linear layout)
+            // SH degree 1..3 coefficients: PLY is channel-major, shader is
+            // coefficient-major, so transpose while copying.
             if (hasRest) {
-                float* dst = &out.sh[(size_t)(decoded + j) * 48];
+                float channelMajor[45];
                 for (int m = 0; m < 45; m++) {
-                    dst[m] = (restIdx[m] >= 0) ? v[restIdx[m]] : 0.0f;
+                    channelMajor[m] = (restIdx[m] >= 0) ? v[restIdx[m]] : 0.0f;
                 }
+                StoreShRestChannelMajorToCoefficientMajor(&out.sh[(size_t)(decoded + j) * 48], channelMajor);
             }
 
             // Track bounds
