@@ -111,11 +111,13 @@ inline void DecodeRotation(uint32_t packed, float& qw, float& qx, float& qy, flo
     // Reconstruct the largest component (sign chosen positive at pack time)
     float sumSq = comps[0]*comps[0] + comps[1]*comps[1] + comps[2]*comps[2] + comps[3]*comps[3];
     comps[largest] = std::sqrt(sumSq < 1.0f ? (1.0f - sumSq) : 0.0f);
-    // PlayCanvas quaternions are (x, y, z, w)
-    qx = comps[0];
-    qy = comps[1];
-    qz = comps[2];
-    qw = comps[3];
+    // The writer calls packRot(rot_0..rot_3) which are PLY-ordered (w, x, y, z),
+    // so the indexed components are (w, x, y, z) — not PlayCanvas' internal
+    // (x, y, z, w). Mapping them the other way bends every ellipsoid incorrectly.
+    qw = comps[0];
+    qx = comps[1];
+    qy = comps[2];
+    qz = comps[3];
     // Normalize (quantisation noise)
     float len = std::sqrt(qw*qw + qx*qx + qy*qy + qz*qz);
     if (len > 1e-8f) {
@@ -435,7 +437,7 @@ inline bool LoadSplatFile(const char* path, SplatData& out) {
     size_t got = fread(buf.data(), 1, (size_t)sz, f);
     fclose(f);
     if (got != (size_t)sz) return false;
-    return LoadSplatPlyFromMemory(buf.data(), buf.size(), out);
+    return LoadSplatPlyFromMemory(buf.data(), buf.size(), out, /*colorIsAbgr=*/true);
 }
 
 // Load a glTF 2.0 GLB carrying a UWA_gaussian_splatting extension.
