@@ -496,7 +496,8 @@ inline bool LoadSogFile(const char* path, SplatData& out, float worldScale = 100
 
     std::vector<ZipEntry> entries;
     if (!ReadZipEntries(file.data(), file.size(), entries)) {
-        LOGE("SOG: not a zip container");
+        LOGE("SOG: '%{public}s' is not a readable ZIP container (expected a .sog with a "
+             "central directory)", path);
         return false;
     }
 
@@ -526,14 +527,23 @@ inline bool LoadSogFile(const char* path, SplatData& out, float worldScale = 100
         return false;
     }
 
+    const Json* versionJson = meta.get("version");
+    const int version = versionJson ? (int)(versionJson->number + 0.5) : 0;
+    if (version != 2) {
+        // v1 used a different per-channel min/max scheme and no codebooks, so the
+        // v2 decode paths below would misread it. Fail loudly instead.
+        LOGE("SOG: meta.json version %{public}d is not supported (this loader implements "
+             "SOG v2 with codebooks); re-export as v2", version);
+        return false;
+    }
+
     const Json* countJson = meta.get("count");
     const uint32_t count = countJson ? (uint32_t)countJson->number : 0u;
     if (count == 0) {
         LOGE("SOG: meta.json has no gaussian count");
         return false;
     }
-    LOGI("SOG: %{public}u gaussians, version %{public}.0f", count,
-        meta.get("version") ? meta.get("version")->number : 0.0);
+    LOGI("SOG: %{public}u gaussians, version %{public}d", count, version);
 
     const Json* means = meta.get("means");
     const Json* scales = meta.get("scales");
@@ -561,7 +571,14 @@ inline bool LoadSogFile(const char* path, SplatData& out, float worldScale = 100
         }
         const uint8_t* bytes = ZipEntryData(file.data(), file.size(), *entry);
         if (bytes == nullptr) {
-            LOGE("SOG: entry '%{public}s' not stored", name.c_str());
+            if (entry->method != 0) {
+                LOGE("SOG: entry '%{public}s' uses ZIP method %{public}u; only stored "
+                     "(method 0) entries are supported",
+                    name.c_str(), (unsigned)entry->method);
+            } else {
+                LOGE("SOG: entry '%{public}s' points outside the file (corrupt local header)",
+                    name.c_str());
+            }
             return false;
         }
         return DecodeWebp(bytes, entry->compressedSize, image, name.c_str());
@@ -576,6 +593,12 @@ inline bool LoadSogFile(const char* path, SplatData& out, float worldScale = 100
     };
 
     // ---- means (16-bit position, log-transformed) ----
+    const Json* meansFiles = means->get("files");
+    if (!meansFiles || meansFiles->items.size() < 2) {
+        LOGE("SOG: means needs two textures (low + high byte), found %{public}u",
+            meansFiles ? (unsigned)meansFiles->items.size() : 0u);
+        return false;
+    }
     RgbaImage meansLo;
     RgbaImage meansHi;
     if (!decodeEntry(fileList(*means, 0), meansLo) || !decodeEntry(fileList(*means, 1), meansHi)) {
@@ -644,6 +667,11 @@ inline bool LoadSogFile(const char* path, SplatData& out, float worldScale = 100
     uint32_t paletteCount = 0;
     if (loadSh && shN != nullptr) {
         shBands = (int)(shN->get("bands") ? shN->get("bands")->number : 0.0);
+        if (shBands < 1 || shBands > 3) {
+            LOGE("SOG: shN.bands %{public}d out of range (expected 1..3), SH rest ignored",
+                shBands);
+            shBands = 0;
+        }
         shCoeffs = ShCoeffCount(shBands);
         const Json* shCodeJson = shN->get("codebook");
         paletteCount = shN->get("count") ? (uint32_t)shN->get("count")->number : 0u;
