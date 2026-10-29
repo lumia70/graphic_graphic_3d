@@ -82,13 +82,31 @@ private:
     BASE_NS::vector<uint32_t> sortScatter_;  // final sorted order
     BASE_NS::vector<float> sortKeys_;        // per-visible depth key
     BASE_NS::vector<uint32_t> bucketCounts_;
-    BASE_NS::vector<uint32_t> sortCursor_;
     BASE_NS::vector<uint32_t> bucketStarts_;
+    // Parallel bucket sort scratch. The gaussian range is split into sortTasks_
+    // slices; each task culls into its own slice, keeps its own histogram and
+    // scatters with its own bucket cursors, so no cross-thread atomics are needed.
+    uint32_t sortTasks_ = 1;
+    uint32_t sortSliceSize_ = 0;
+    BASE_NS::vector<uint32_t> taskVisible_;
+    BASE_NS::vector<float> taskZMin_;
+    BASE_NS::vector<float> taskZMax_;
+    BASE_NS::vector<uint32_t> taskCursor_;   // bucket-major: [bucket * sortTasks_ + task]
     uint32_t visibleCount_ = 0;
     // Coarse view-change tracking (re-sort threshold)
     float lastDirX_ = 0.f, lastDirY_ = 0.f, lastDirZ_ = -1.f;
     float lastEyeX_ = 0.f, lastEyeY_ = 0.f, lastEyeZ_ = 0.f;
     bool sortBufferUploaded_ = false;
+    // Baseline instrumentation: cull+sort cost in milliseconds (logged every
+    // kSortLogInterval re-sorts so the numbers stay readable in hilog).
+    float lastSortMs_ = 0.0f;
+    uint32_t sortCount_ = 0;
+    // Aggregated over the last kSortLogInterval sorts (min/avg/max per phase).
+    float statTotalMs_[3] = { 1e9f, 0.0f, 0.0f };
+    float statCullMs_[3] = { 1e9f, 0.0f, 0.0f };
+    float statHistMs_[3] = { 1e9f, 0.0f, 0.0f };
+    float statScatterMs_[3] = { 1e9f, 0.0f, 0.0f };
+    uint32_t statCount_ = 0;
 
     // Shader + PSO
     RenderHandle shaderHandle_;
