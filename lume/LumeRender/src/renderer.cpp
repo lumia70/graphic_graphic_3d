@@ -634,17 +634,9 @@ void Renderer::RemapBackBufferHandle(const IRenderDataStoreManager& renderData)
     if (dataStorePod) {
         auto const dataView = dataStorePod->Get("NodeGraphBackBufferConfiguration");
         if (dataView.size_bytes() < sizeof(NodeGraphBackBufferConfiguration)) {
-            if (device_.GetFrameCount() <= 3U) {
-                PLUGIN_LOG_E("DIAG: RemapBB: no NodeGraphBackBufferConfiguration (size=%zu, needed=%zu)",
-                    dataView.size_bytes(), sizeof(NodeGraphBackBufferConfiguration));
-            }
             return;
         }
         const auto bb = reinterpret_cast<const NodeGraphBackBufferConfiguration*>(dataView.data());
-        if (device_.GetFrameCount() <= 3U) {
-            PLUGIN_LOG_E("DIAG: RemapBB: bbType=%u hasSwapchain=%d",
-                (unsigned)bb->backBufferType, (int)device_.HasSwapchain());
-        }
         if (bb->backBufferType == NodeGraphBackBufferConfiguration::BackBufferType::SWAPCHAIN) {
             if (!device_.HasSwapchain()) {
                 PLUGIN_LOG_E("Using swapchain rendering without swapchain");
@@ -836,11 +828,6 @@ void Renderer::RenderFrameBackendImpl()
     for (const auto& swapState : bbState.swapchains) {
         config.swapchainData.push_back({swapState.handle, swapState.state, swapState.layout, {}});
     }
-    if (device_.GetFrameCount() <= 3U) {
-        PLUGIN_LOG_E("DIAG: rcfd.cmdCtxCount=%zu swapchainCount=%zu allRenderNodeCount=%zu hasSwapchain=%d",
-            rcfd.renderCommandContexts.size(), bbState.swapchains.size(), allRenderNodeCount,
-            (int)device_.HasSwapchain());
-    }
     if (!config.swapchainData.empty()) {
         // NOTE: this is a backwards compatibility for a single (default) swapchain config data
         // should be removed
@@ -851,10 +838,6 @@ void Renderer::RenderFrameBackendImpl()
                 // expects to be the first swapchain in the list
                 const auto* bb = (const NodeGraphBackBufferConfiguration*)dataView.data();
                 config.swapchainData[0U].config = *bb;
-                if (device_.GetFrameCount() <= 3U) {
-                    PLUGIN_LOG_E("DIAG: bbType=%u bbName=%s",
-                        (unsigned)bb->backBufferType, BASE_NS::string(bb->backBufferName).c_str());
-                }
             }
         }
     }
@@ -862,9 +845,6 @@ void Renderer::RenderFrameBackendImpl()
     // must run backend if there are descriptor sets to update even if there's nothing to render.
     renderFrameTimeData_.hasBackendWork = (!rcfd.renderCommandContexts.empty()) ||
                                            (!device_.GetDescriptorSetManager().GetUpdateDescriptorSetHandles().empty());
-    if (device_.GetFrameCount() <= 3U) {
-        PLUGIN_LOG_E("DIAG: hasBackendWork=%d", (int)renderFrameTimeData_.hasBackendWork);
-    }
 
     device_.Activate();
 
