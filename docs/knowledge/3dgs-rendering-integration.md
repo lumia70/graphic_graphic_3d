@@ -144,7 +144,50 @@ fragment：raw 颜色(0.5+C0·f_dc) × alpha  →  UNORM 离屏（CLEAR 为 web 
 所有经验校准常数已删除。正面/侧面/背面聚合指标与 web 参考差距 ≤5%，
 红薯区域逐通道差 ≤2。
 
-## 5. 性能
+## 5. 压缩 splat 格式（super-splat compressed PLY / UWA glTF）
+
+`.splat`、GLB 内嵌的 `UWA_gaussian_splatting` 载荷都基于 super-splat 的
+"压缩 PLY"：`element chunk`（每 256 个 splat 一组）＋ 4 个 packed uint32。
+真实打包规则（对照 `playcanvas/splat-transform` 的 `compressed-chunk.ts`
+并用数据往返验证）与我们最初的假设完全不同，错一处分就会出现
+"尖刺 / shredded / 位置错乱"：
+
+| 字段 | 真实打包 | 曾经踩的坑 |
+| --- | --- | --- |
+| position | `(x:11 << 21) | (y:10 << 11) | z:11`，即**低位是 z** | 误以为 10-10-10、x 在低位 |
+| scale | 同 position 布局，chunk 内为 **log 空间**，解码 `exp()` | 位宽/轴序错 → 椭球尺寸与方向全错 |
+| rotation | `2 bit 最大分量索引 + 3×10 bit`（其余分量按升序填 30..0 位，量化 `(a·√2/2+0.5)`），**分量顺序按写入端的 (w,x,y,z)** | 误用 4×int8；分量顺序误按 (x,y,z,w) → 定向尖刺 |
+| colour | `pack8888`：字节序因导出工具而异——godzilla 为 `A,B,G,R`，doll 为 `A,B,G,B?`（实测选中布局），**alpha 恒在 byte0** | 统一按 RGBA 解读 → 品红/灰蒙蒙偏色 |
+
+**颜色还有一层**：声明了
+
+```
+declare feature_dc_min -3.32...
+declare feature_dc_max  3.01...
+```
+
+的导出文件，颜色字节存的是**归一化的 f_dc 系数**而不是最终颜色：
+
+```
+f_dc  = dcMin + n * (dcMax - dcMin)        n = byte / 255
+color = 0.5 + SH_C0 * f_dc                 SH_C0 = 0.28209479
+```
+
+直接按字节当颜色会压缩约 2 倍的通道差 → 主体"灰蒙蒙"。未声明该范围的文件
+（如 godzilla.splat）颜色字节即最终颜色，需按文件区分。
+
+**SH**：GLB 变体用向量量化——`element feature_rest_vq`（每 splat 一个 uint
+索引）＋ `element feature_rest`（int8 码本 × 45 系数），配合
+`declare feature_rest_scale / feature_rest_zero_point` 重建
+`sh[m] = codebook[idx*45+m] * scale + zeroPoint`。加载层应完整解析存入共享
+SH 数组，是否参与渲染由管线侧常量决定（当前 DC-only）。
+
+**环境壳体的薄雾**：扫描场景的外围环境球（半径 ~437）常有尺度接近主体尺寸
+（数十单位）的大 gaussian，近距离观看主体时它们像半透明薄纱罩在画面上。
+实测剔除 r>150 的壳体后主体饱和度 0.125→0.195、对比度 0.087→0.190。
+需要按产品形态决定：完全剔除、按相机距离渐隐，或保留（远景才是完整场景外观）。
+
+## 6. 性能
 
 | 优化 | 效果 |
 | --- | --- |
@@ -154,7 +197,7 @@ fragment：raw 颜色(0.5+C0·f_dc) × alpha  →  UNORM 离屏（CLEAR 为 web 
 | 65536 桶排序 | 排序成本与 4K 桶基本持平（仍是两遍线性扫描）|
 | 三缓冲 | 消除运动闪烁（非性能项，但避免降频抖动）|
 
-## 6. 调试方法论（可复用）
+## 7. 调试方法论（可复用）
 
 1. **同视角对比**：固定参考视角（相机状态日志 → 硬编码为启动默认），
    用 `snapshot_display` 抓原始 framebuffer；对比图不受"重启后视角回默认"干扰。
@@ -167,7 +210,7 @@ fragment：raw 颜色(0.5+C0·f_dc) × alpha  →  UNORM 离屏（CLEAR 为 web 
 6. **A/B 构建**：把可疑机制做成 shader 常数（SH 阶数、falloff 变体），
    单次部署验证一个假设。
 
-## 7. 遗留与后续方向
+## 8. 遗留与后续方向
 
 - **SOG 格式加载**（`fruit_bowl.sog`）：开源精简格式，字典/调色板解压。
 - **godzilla.splat / doll.glb**：在新管线（UNORM + DC + 65K 排序）下复测。
@@ -179,7 +222,7 @@ fragment：raw 颜色(0.5+C0·f_dc) × alpha  →  UNORM 离屏（CLEAR 为 web 
 - **提交前**：GPU/Shader 行为变更按仓库规则应先执行
   `ohos-dev-graphics-stability-code-review`。
 
-## 8. 代码索引
+## 9. 代码索引
 
 | 路径 | 说明 |
 | --- | --- |
