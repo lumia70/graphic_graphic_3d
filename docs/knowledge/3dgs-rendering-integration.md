@@ -288,3 +288,6 @@ fruit_bowl 的 99% 高斯落在 `r < 0.2`（乘 100 世界缩放后 ≈ 20），
 | `lume/LumeRender/src/node/render_node_gaussian_splatting.*` | 核心 RenderNode：剔除/排序/双 pass/PSO |
 | `lume/LumeRender/src/node/core_render_node_factory.cpp` | 节点注册 |
 | `LumeApp/entry/src/main/resources/rawfile/shaders/splat/` | splat/拷贝 shader（GLSL + .spv + .lsb + .shader/.shaderpl）|
+
+演示模型不在仓库内（体积与许可原因），清单与放置方式见
+[3DGS 演示资产清单](3dgs-demo-assets.md)。
