@@ -221,6 +221,10 @@ inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& 
     std::vector<PlyElementDesc> elements;
     float restScale = 1.0f;
     float restZeroPoint = 0.0f;
+    float dcRangeMin = 0.0f;
+    float dcRangeMax = 0.0f;
+    bool hasDcMin = false;
+    bool hasDcMax = false;
     size_t lineStart = 0;
     for (size_t i = 0; i <= hdrEnd; i++) {
         if (i != hdrEnd && text[i] != '\n') continue;
@@ -252,6 +256,12 @@ inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& 
                 restScale = strtof(line.c_str() + 27, nullptr);
             } else if (line.rfind("declare feature_rest_zero_point ", 0) == 0) {
                 restZeroPoint = strtof(line.c_str() + 32, nullptr);
+            } else if (line.rfind("declare feature_dc_min ", 0) == 0) {
+                dcRangeMin = strtof(line.c_str() + 22, nullptr);
+                hasDcMin = true;
+            } else if (line.rfind("declare feature_dc_max ", 0) == 0) {
+                dcRangeMax = strtof(line.c_str() + 22, nullptr);
+                hasDcMax = true;
             }
         }
         lineStart = i + 1;
@@ -366,6 +376,22 @@ inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& 
                 r = crMin + r * (crMax - crMin);
                 gb = cgMin + gb * (cgMax - cgMin);
                 b = cbMin + b * (cbMax - cbMin);
+            }
+            if (hasDcMin && hasDcMax) {
+                // Exports that declare feature_dc_min/max store NORMALISED SH DC
+                // coefficients instead of final colours: reconstruct
+                // colour = 0.5 + SH_C0 * (dcMin + n * (dcMax - dcMin)).
+                // This restores roughly 2x the channel spread (saturation) the
+                // raw byte values alone would give.
+                constexpr float SH_C0 = 0.28209479177387814f;
+                const float span = dcRangeMax - dcRangeMin;
+                auto dcToColor = [&](float n) {
+                    float c = 0.5f + SH_C0 * (dcRangeMin + n * span);
+                    return c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
+                };
+                r = dcToColor(r);
+                gb = dcToColor(gb);
+                b = dcToColor(b);
             }
         } else {
             DecodeColor(pv.packedColor, r, gb, b, a);

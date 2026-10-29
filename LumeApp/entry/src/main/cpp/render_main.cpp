@@ -1097,23 +1097,6 @@ void LoadSplatModel()
         loaded = LoadStandard3DgsPly(plyPath.c_str(), g_lume.splatData, 100.0f);
     }
 
-    if (loaded && kDemoModel == 2) {
-        // EXPERIMENT: cull the distant environment shell (radius ~437) to test
-        // whether it veils the subject. Keep gaussians within 150 units.
-        auto& gs = g_lume.splatData.gaussians;
-        const size_t before = gs.size();
-        size_t w = 0;
-        for (size_t i = 0; i < gs.size(); i++) {
-            const auto& g = gs[i];
-            if (g.px * g.px + g.py * g.py + g.pz * g.pz <= 150.0f * 150.0f) {
-                gs[w++] = g;
-            }
-        }
-        gs.resize(w);
-        g_lume.splatData.gaussianCount = (uint32_t)w;
-        LOGI("Doll env-shell cull: %zu -> %zu gaussians", before, w);
-    }
-
     if (loaded) {
         g_lume.splatLoaded = true;
         LOGI("Splat loaded: %{public}u gaussians, bounds=(%{public}.2f,%{public}.2f,%{public}.2f)-(%{public}.2f,%{public}.2f,%{public}.2f)",
