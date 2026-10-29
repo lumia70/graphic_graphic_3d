@@ -21,6 +21,7 @@ struct GaussianCameraData {
     float proj[16];
     float viewport[4];
     float cameraPos[4];
+    float shScale[4];   // x = SH degree 1 scale, y = degree 2-3 scale
 };
 
 // Shared global state

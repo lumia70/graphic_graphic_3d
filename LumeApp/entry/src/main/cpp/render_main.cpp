@@ -144,6 +144,8 @@ struct OrbitCamera {
     float backX = 0.f, backY = 0.f, backZ = 1.f;
 
     float fovYDeg = 60.0f;  // vertical field of view (per-model)
+    float shDeg1 = 0.0f;    // SH degree-1 weight (per-model)
+    float shDeg23 = 0.0f;   // SH degree 2-3 weight (per-model)
     float distance = 1.2f;  // distance from target
     float targetX = 0.0f, targetY = 0.0f, targetZ = 0.0f;
 
@@ -253,6 +255,10 @@ struct OrbitCamera {
         g_gaussianCameraData.cameraPos[1] = cy;
         g_gaussianCameraData.cameraPos[2] = cz;
         g_gaussianCameraData.cameraPos[3] = 1.f;
+        g_gaussianCameraData.shScale[0] = shDeg1;
+        g_gaussianCameraData.shScale[1] = shDeg23;
+        g_gaussianCameraData.shScale[2] = 0.f;
+        g_gaussianCameraData.shScale[3] = 0.f;
         g_gaussianCameraReady = true;
     }
 };
@@ -1112,6 +1118,11 @@ void LoadSplatModel()
 
         // Per-model FOV: godzilla's reference app uses 80°, everything else 60°.
         g_orbitCam.fovYDeg = (kDemoModel == 1) ? 80.0f : 60.0f;
+        // Per-model SH: the doll's VQ-SH matches its reference renderer (measured
+        // saturation/contrast inside the reference range); the fruit-bowl PLY is
+        // matched against a DC-dominant web viewer, and godzilla carries no SH.
+        g_orbitCam.shDeg1 = (kDemoModel == 2) ? 1.0f : 0.0f;
+        g_orbitCam.shDeg23 = (kDemoModel == 2) ? 1.0f : 0.0f;
 
         if (kDemoModel == 0) {
             // Reference viewpoint — recorded from the user's manual match to the

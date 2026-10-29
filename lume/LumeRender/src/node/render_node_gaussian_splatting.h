@@ -65,6 +65,7 @@ private:
     RenderHandleReference sortIndexBuffer_[FRAME_SLOTS];
     uint32_t currentSlot_ = 0;
     RenderHandleReference shBuffer_;
+    RenderHandleReference shParamsBuffer_[FRAME_SLOTS];  // SH weights per frame (binding 4)
     // UNORM offscreen target: raw (code-space) splat compositing, exactly
     // like the web canvas; copied to the sRGB backbuffer by a decode pass.
     RenderHandleReference offscreenImage_;

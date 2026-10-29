@@ -20,6 +20,11 @@ layout(set = 0, binding = 0, std140) uniform CameraUBO {
     vec4 cameraPos;
 };
 
+// Per-frame shader parameters (SH weights are per-model configuration)
+layout(set = 0, binding = 4, std430) readonly buffer ShParamsUBO {
+    vec4 shScale;   // x = SH degree-1 weight, y = degree 2-3 weight
+};
+
 struct Gaussian {
     vec4 posAndPad;     // xyz = position
     vec4 scaleOpacity;  // xyz = scale, w = opacity
@@ -66,8 +71,8 @@ const float SH_C3[7] = float[7](
 // The model's degree 2/3 coefficients are training noise (|coef| ~0.03) that
 // the large high-order basis multipliers (C3 up to 2.89) amplify into visible
 // darkening. The web viewer renders SH degree <= 1, so we match it.
-const float SH_DEG1_SCALE = 0.0;
-const float SH_DEG23_SCALE = 0.0;
+// SH weights come from the camera UBO (per-model configuration)
+
 
 // Evaluate SH degree 1..3 for all channels. dir = normalize(pos - camPos).
 vec3 evalSH(uint idx, vec3 dir) {
@@ -76,28 +81,28 @@ vec3 evalSH(uint idx, vec3 dir) {
     vec3 result = vec3(0.0);
 
     // degree 1: -y, z, -x
-    result += SH_DEG1_SCALE * (SH_C1 * (-y) * vec3(shArr[base + 0], shArr[base + 1], shArr[base + 2]));
-    result += SH_DEG1_SCALE * (SH_C1 * ( z) * vec3(shArr[base + 3], shArr[base + 4], shArr[base + 5]));
-    result += SH_DEG1_SCALE * (SH_C1 * (-x) * vec3(shArr[base + 6], shArr[base + 7], shArr[base + 8]));
+    result += shScale.x * (SH_C1 * (-y) * vec3(shArr[base + 0], shArr[base + 1], shArr[base + 2]));
+    result += shScale.x * (SH_C1 * ( z) * vec3(shArr[base + 3], shArr[base + 4], shArr[base + 5]));
+    result += shScale.x * (SH_C1 * (-x) * vec3(shArr[base + 6], shArr[base + 7], shArr[base + 8]));
 
-    if (SH_DEG23_SCALE > 0.0) {
+    if (shScale.y > 0.0) {
         // degree 2: xy, yz, (2zz-xx-yy), xz, (xx-yy)
         float xx = x * x, yy = y * y, zz = z * z;
         float xy = x * y, yz = y * z, xz = x * z;
-        result += SH_DEG23_SCALE * (SH_C2[0] * xy * vec3(shArr[base +  9], shArr[base + 10], shArr[base + 11]));
-        result += SH_DEG23_SCALE * (SH_C2[1] * yz * vec3(shArr[base + 12], shArr[base + 13], shArr[base + 14]));
-        result += SH_DEG23_SCALE * (SH_C2[2] * (2.0 * zz - xx - yy) * vec3(shArr[base + 15], shArr[base + 16], shArr[base + 17]));
-        result += SH_DEG23_SCALE * (SH_C2[3] * xz * vec3(shArr[base + 18], shArr[base + 19], shArr[base + 20]));
-        result += SH_DEG23_SCALE * (SH_C2[4] * (xx - yy) * vec3(shArr[base + 21], shArr[base + 22], shArr[base + 23]));
+        result += shScale.y * (SH_C2[0] * xy * vec3(shArr[base +  9], shArr[base + 10], shArr[base + 11]));
+        result += shScale.y * (SH_C2[1] * yz * vec3(shArr[base + 12], shArr[base + 13], shArr[base + 14]));
+        result += shScale.y * (SH_C2[2] * (2.0 * zz - xx - yy) * vec3(shArr[base + 15], shArr[base + 16], shArr[base + 17]));
+        result += shScale.y * (SH_C2[3] * xz * vec3(shArr[base + 18], shArr[base + 19], shArr[base + 20]));
+        result += shScale.y * (SH_C2[4] * (xx - yy) * vec3(shArr[base + 21], shArr[base + 22], shArr[base + 23]));
 
         // degree 3
-        result += SH_DEG23_SCALE * (SH_C3[0] * y * (3.0 * xx - yy) * vec3(shArr[base + 24], shArr[base + 25], shArr[base + 26]));
-        result += SH_DEG23_SCALE * (SH_C3[1] * xy * z * vec3(shArr[base + 27], shArr[base + 28], shArr[base + 29]));
-        result += SH_DEG23_SCALE * (SH_C3[2] * y * (4.0 * zz - xx - yy) * vec3(shArr[base + 30], shArr[base + 31], shArr[base + 32]));
-        result += SH_DEG23_SCALE * (SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * vec3(shArr[base + 33], shArr[base + 34], shArr[base + 35]));
-        result += SH_DEG23_SCALE * (SH_C3[4] * x * (4.0 * zz - xx - yy) * vec3(shArr[base + 36], shArr[base + 37], shArr[base + 38]));
-        result += SH_DEG23_SCALE * (SH_C3[5] * z * (xx - yy) * vec3(shArr[base + 39], shArr[base + 40], shArr[base + 41]));
-        result += SH_DEG23_SCALE * (SH_C3[6] * x * (xx - 3.0 * yy) * vec3(shArr[base + 42], shArr[base + 43], shArr[base + 44]));
+        result += shScale.y * (SH_C3[0] * y * (3.0 * xx - yy) * vec3(shArr[base + 24], shArr[base + 25], shArr[base + 26]));
+        result += shScale.y * (SH_C3[1] * xy * z * vec3(shArr[base + 27], shArr[base + 28], shArr[base + 29]));
+        result += shScale.y * (SH_C3[2] * y * (4.0 * zz - xx - yy) * vec3(shArr[base + 30], shArr[base + 31], shArr[base + 32]));
+        result += shScale.y * (SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * vec3(shArr[base + 33], shArr[base + 34], shArr[base + 35]));
+        result += shScale.y * (SH_C3[4] * x * (4.0 * zz - xx - yy) * vec3(shArr[base + 36], shArr[base + 37], shArr[base + 38]));
+        result += shScale.y * (SH_C3[5] * z * (xx - yy) * vec3(shArr[base + 39], shArr[base + 40], shArr[base + 41]));
+        result += shScale.y * (SH_C3[6] * x * (xx - 3.0 * yy) * vec3(shArr[base + 42], shArr[base + 43], shArr[base + 44]));
     }
 
     return result;

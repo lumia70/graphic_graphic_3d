@@ -159,6 +159,15 @@ void RenderNodeGaussianSplatting::InitNode(IRenderNodeContextManager& mgr)
         char name[32];
         snprintf(name, sizeof(name), "GS_CamUBO_%u", s);
         cameraUbo_[s] = gpuResMgr.Create(name, uboDesc);
+
+        // SH weights (vec4) — small SSBO per frame slot
+        GpuBufferDesc paramDesc {};
+        paramDesc.usageFlags = CORE_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        paramDesc.memoryPropertyFlags = CORE_MEMORY_PROPERTY_HOST_VISIBLE_BIT | CORE_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        paramDesc.byteSize = 16u;
+        paramDesc.engineCreationFlags = CORE_ENGINE_BUFFER_CREATION_DYNAMIC_BARRIERS;
+        snprintf(name, sizeof(name), "GS_ShParams_%u", s);
+        shParamsBuffer_[s] = gpuResMgr.Create(name, paramDesc);
     }
 
     // Gaussian SSBO (host-visible, uploaded once when data is ready)
@@ -253,6 +262,9 @@ void RenderNodeGaussianSplatting::InitNode(IRenderNodeContextManager& mgr)
         }
         if (shBuffer_) {
             pipelineDescriptorSetBinder_->BindBuffer(0u, 3u, BindableBuffer { shBuffer_.GetHandle() });
+        }
+        if (shParamsBuffer_[0]) {
+            pipelineDescriptorSetBinder_->BindBuffer(0u, 4u, BindableBuffer { shParamsBuffer_[0].GetHandle() });
         }
     }
 
@@ -514,6 +526,22 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
             gpuResMgr.UnmapBuffer(cameraUbo_[slot].GetHandle());
         }
 
+        // SH weights (per-model configuration) go through a small SSBO: adding a
+        // field to the camera UBO was not readable through Lume's UBO path.
+        if (shParamsBuffer_[slot]) {
+            float params[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            if (g_sp.CameraReady()) {
+                const auto& cam = g_sp.Camera();
+                params[0] = cam.shScale[0];
+                params[1] = cam.shScale[1];
+            }
+            void* pMapped = gpuResMgr.MapBuffer(shParamsBuffer_[slot].GetHandle());
+            if (pMapped) {
+                std::memcpy(pMapped, params, sizeof(params));
+                gpuResMgr.UnmapBuffer(shParamsBuffer_[slot].GetHandle());
+            }
+        }
+
         // ---- 3.5 Frustum + size cull, back-to-front bucket sort ----
         // Re-sorted only when the view rotated/zoomed past a small threshold;
         // the cull pass reduces both GPU vertex load and sort work.
@@ -650,6 +678,9 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
         }
         if (shBuffer_) {
             pipelineDescriptorSetBinder_->BindBuffer(0u, 3u, BindableBuffer { shBuffer_.GetHandle() });
+        }
+        if (shParamsBuffer_[slot]) {
+            pipelineDescriptorSetBinder_->BindBuffer(0u, 4u, BindableBuffer { shParamsBuffer_[slot].GetHandle() });
         }
 
         for (auto refIndex : pipelineDescriptorSetBinder_->GetSetIndices()) {

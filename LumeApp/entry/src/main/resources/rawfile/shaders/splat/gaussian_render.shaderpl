@@ -30,6 +30,12 @@
                     "descriptorType": "storage_buffer",
                     "descriptorCount": 1,
                     "shaderStageFlags": "vertex_bit"
+                },
+                {
+                    "binding": 4,
+                    "descriptorType": "storage_buffer",
+                    "descriptorCount": 1,
+                    "shaderStageFlags": "vertex_bit"
                 }
             ]
         }
