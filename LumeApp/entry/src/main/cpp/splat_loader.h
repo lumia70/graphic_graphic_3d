@@ -196,8 +196,12 @@ struct PlyElementDesc {
     size_t dataOffset = 0;                              // relative to header end
 };
 
+// Colour byte layouts seen in compressed splat files:
+//  0 = RGBA bytes (b0=R, b1=G, b2=B, b3=A)      — legacy .splat variant
+//  1 = official pack8888 (b0=A, b1=B, b2=G, b3=R)
+//  2 = alpha-first, BGR (b0=A, b1=R, b2=G, b3=B)
 inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& out,
-    const bool colorIsAbgr = false)
+    const int colorOrder = 0)
 {
     if (!data || size < 16) return false;
     const char* text = reinterpret_cast<const char*>(data);
@@ -344,13 +348,19 @@ inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& 
         DecodeScale(pv.packedScale, chunk, g.sx, g.sy, g.sz);
         DecodeRotation(pv.packedRotation, g.qw, g.qx, g.qy, g.qz);
         float r, gb, b, a;
-        if (colorIsAbgr) {
-            // Official pack8888 layout: byte0 = alpha, byte1 = blue,
-            // byte2 = green, byte3 = red (splat-transform compressed-chunk).
+        if (colorOrder != 0) {
             a = static_cast<float>(pv.packedColor & 0xFF) / 255.0f;
-            b = static_cast<float>((pv.packedColor >> 8) & 0xFF) / 255.0f;
-            gb = static_cast<float>((pv.packedColor >> 16) & 0xFF) / 255.0f;
-            r = static_cast<float>((pv.packedColor >> 24) & 0xFF) / 255.0f;
+            if (colorOrder == 1) {
+                // official pack8888: b1=blue, b2=green, b3=red
+                b = static_cast<float>((pv.packedColor >> 8) & 0xFF) / 255.0f;
+                gb = static_cast<float>((pv.packedColor >> 16) & 0xFF) / 255.0f;
+                r = static_cast<float>((pv.packedColor >> 24) & 0xFF) / 255.0f;
+            } else {
+                // BGR variant: b1=red, b2=green, b3=blue
+                r = static_cast<float>((pv.packedColor >> 8) & 0xFF) / 255.0f;
+                gb = static_cast<float>((pv.packedColor >> 16) & 0xFF) / 255.0f;
+                b = static_cast<float>((pv.packedColor >> 24) & 0xFF) / 255.0f;
+            }
             if (hasColorRange) {
                 // Newer writer variant: colours are normalised to the chunk range
                 r = crMin + r * (crMax - crMin);
@@ -437,7 +447,7 @@ inline bool LoadSplatFile(const char* path, SplatData& out) {
     size_t got = fread(buf.data(), 1, (size_t)sz, f);
     fclose(f);
     if (got != (size_t)sz) return false;
-    return LoadSplatPlyFromMemory(buf.data(), buf.size(), out, /*colorIsAbgr=*/true);
+    return LoadSplatPlyFromMemory(buf.data(), buf.size(), out, /*colorOrder=*/1);
 }
 
 // Load a glTF 2.0 GLB carrying a UWA_gaussian_splatting extension.
@@ -487,7 +497,7 @@ inline bool LoadUwaSplatGlb(const char* path, SplatData& out)
     }
     if (!binData || binSize == 0) return false;
 
-    return LoadSplatPlyFromMemory(binData, binSize, out, /*colorIsAbgr=*/true);
+    return LoadSplatPlyFromMemory(binData, binSize, out, /*colorOrder=*/1);
 }
 
 // ---------------------------------------------------------------------------

@@ -116,6 +116,11 @@ mat3 quatToMat3(vec4 q) {
     );
 }
 
+// 2D covariance low-pass variance floor (pixels^2).
+// 0.3 is the INRIA/PlayCanvas standard anti-aliasing dilation; lowering it
+// keeps small splats sharp at the cost of some aliasing.
+const float LOW_PASS = 0.3;
+
 void main() {
     uint gaussianIdx = sortedIndices[uint(gl_VertexIndex) / 6u];
 
@@ -197,9 +202,9 @@ void main() {
     // and muting objects seen through translucent layers.
 
     // Low-pass filter + eigenvalues (PlayCanvas exact: mid/radius, lambda2 floor 0.1)
-    float a = c00 + 0.3;
+    float a = c00 + LOW_PASS;
     float b = c01;
-    float c = c11 + 0.3;
+    float c = c11 + LOW_PASS;
     float mid = 0.5 * (a + c);
     float radius = length(vec2((a - c) / 2.0, b));
     float l1 = mid + radius;

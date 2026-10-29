@@ -143,6 +143,7 @@ struct OrbitCamera {
     float upX = 0.f, upY = 1.f, upZ = 0.f;
     float backX = 0.f, backY = 0.f, backZ = 1.f;
 
+    float fovYDeg = 60.0f;  // vertical field of view (per-model)
     float distance = 1.2f;  // distance from target
     float targetX = 0.0f, targetY = 0.0f, targetZ = 0.0f;
 
@@ -204,7 +205,7 @@ struct OrbitCamera {
     }
 
     void ComputeProjMatrix(float* out, float aspect) const {
-        float fovRad = 60.0f * 3.14159265f / 180.f;
+        float fovRad = fovYDeg * 3.14159265f / 180.f;
         float f = 1.f / tanf(fovRad * 0.5f);
         float zn = 0.05f, zf = 2000.f;
         memset(out, 0, 16 * sizeof(float));
@@ -1096,6 +1097,23 @@ void LoadSplatModel()
         loaded = LoadStandard3DgsPly(plyPath.c_str(), g_lume.splatData, 100.0f);
     }
 
+    if (loaded && kDemoModel == 2) {
+        // EXPERIMENT: cull the distant environment shell (radius ~437) to test
+        // whether it veils the subject. Keep gaussians within 150 units.
+        auto& gs = g_lume.splatData.gaussians;
+        const size_t before = gs.size();
+        size_t w = 0;
+        for (size_t i = 0; i < gs.size(); i++) {
+            const auto& g = gs[i];
+            if (g.px * g.px + g.py * g.py + g.pz * g.pz <= 150.0f * 150.0f) {
+                gs[w++] = g;
+            }
+        }
+        gs.resize(w);
+        g_lume.splatData.gaussianCount = (uint32_t)w;
+        LOGI("Doll env-shell cull: %zu -> %zu gaussians", before, w);
+    }
+
     if (loaded) {
         g_lume.splatLoaded = true;
         LOGI("Splat loaded: %{public}u gaussians, bounds=(%{public}.2f,%{public}.2f,%{public}.2f)-(%{public}.2f,%{public}.2f,%{public}.2f)",
@@ -1108,6 +1126,9 @@ void LoadSplatModel()
             LOGI("  g[%{public}u] pos=(%{public}.3f,%{public}.3f,%{public}.3f) scale=(%{public}.4f,%{public}.4f,%{public}.4f) color=(%{public}.2f,%{public}.2f,%{public}.2f,%{public}.2f)",
                 i, g.px, g.py, g.pz, g.sx, g.sy, g.sz, g.cr, g.cg, g.cb, g.opacity);
         }
+
+        // Per-model FOV: godzilla's reference app uses 80°, everything else 60°.
+        g_orbitCam.fovYDeg = (kDemoModel == 1) ? 80.0f : 60.0f;
 
         if (kDemoModel == 0) {
             // Reference viewpoint — recorded from the user's manual match to the
