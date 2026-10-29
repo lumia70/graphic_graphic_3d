@@ -3,6 +3,10 @@
 > 场景：在 OpenHarmony `graphic_3d`（Lume 引擎）上以原生 Vulkan 渲染 3D Gaussian Splatting，
 > 目标是与 PlayCanvas `supersplat-viewer` 的网页端渲染效果对齐。
 > 本文记录遇到的问题、走过的弯路与最终方案，供后续复用与排障。
+>
+> 按时间线整理的工作内容、决策依据与完整踩坑清单见
+> [3DGS 演示实现与踩坑总结](3dgs-demo-summary.md)；资产与复现条件见
+> [演示资产清单](3dgs-demo-assets.md)。
 
 ## 1. 最终架构
 
