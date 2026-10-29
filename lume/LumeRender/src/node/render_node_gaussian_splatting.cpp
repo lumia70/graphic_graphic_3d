@@ -48,6 +48,7 @@ void RenderNodeGaussianSplatting::Destroy(IRenderNode* instance) {
 
 // ---- dlsym helper to read shared globals from liblumeapp.so ----
 namespace {
+
 struct SharedPtrs {
     const GpuGaussianData** dataPtr = nullptr;
     uint32_t* countPtr = nullptr;
@@ -222,6 +223,189 @@ private:
     bool stop_ = false;
 };
 
+// Per-thread-independent scratch for one sort. The gaussian range is split into
+// `tasks` slices; each task culls into its own slice, keeps its own histogram
+// and scatters with its own bucket cursors, so no atomics are needed.
+struct SortScratch {
+    uint32_t tasks = 1u;
+    uint32_t sliceSize = 0u;
+    std::vector<uint32_t> ids;
+    std::vector<float> keys;
+    std::vector<uint32_t> taskVisible;
+    std::vector<float> taskZMin;
+    std::vector<float> taskZMax;
+    std::vector<uint32_t> cursors;      // bucket-major: [bucket * tasks + task]
+    std::vector<uint32_t> bucketCounts;
+    std::vector<uint32_t> bucketStarts;
+};
+
+struct SortTiming {
+    float totalMs = 0.0f;
+    float cullMs = 0.0f;
+    float histMs = 0.0f;
+    float scatterMs = 0.0f;
+};
+
+// Frustum + size cull and back-to-front bucket sort. Returns the visible count
+// and writes the order into `out` (which must hold `count` entries).
+uint32_t ComputeSort(const float* records, const uint32_t count, SortScratch& s, uint32_t* out,
+    const float* vm, const float* pm, const float viewportHeight, SortTiming* timing)
+{
+    const auto sortBegin = std::chrono::steady_clock::now();
+    auto ms = [](std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
+        return std::chrono::duration<float, std::milli>(b - a).count();
+    };
+
+    SortPool& pool = SortPool::Instance();
+    const uint32_t tasks = pool.Tasks();
+    if (s.tasks != tasks || s.sliceSize != (count + tasks - 1u) / tasks) {
+        s.tasks = tasks;
+        s.sliceSize = (count + tasks - 1u) / tasks;
+        const size_t sliceTotal = (size_t)s.sliceSize * tasks;
+        s.ids.resize(sliceTotal);
+        s.keys.resize(sliceTotal);
+        s.taskVisible.resize(tasks);
+        s.taskZMin.resize(tasks);
+        s.taskZMax.resize(tasks);
+        s.cursors.resize((size_t)SORT_BUCKETS * tasks);
+        s.bucketCounts.resize(SORT_BUCKETS);
+        s.bucketStarts.resize(SORT_BUCKETS);
+    }
+
+    // View rows (column-major): right, up, forward
+    const float r0 = vm[0], r1 = vm[4], r2 = vm[8], t0 = vm[12];
+    const float u0 = vm[1], u1 = vm[5], u2 = vm[9], t1 = vm[13];
+    const float f0 = vm[2], f1 = vm[6], f2 = vm[10], t2 = vm[14];
+    // Frustum half-tangents with generous 2x margin (no false culls)
+    const float tanX = 2.0f / fabsf(pm[0]);
+    const float tanY = 2.0f / fabsf(pm[5]);
+    // Size cull: focal_y in pixels for screen radius estimate
+    const float focalY = fabsf(pm[5]) * viewportHeight * 0.5f;
+
+    // Pass 1 (parallel): cull + collect visible + per-task depth range.
+    pool.Run(tasks, [&](uint32_t t) {
+        const uint32_t begin = t * s.sliceSize;
+        const uint32_t finish = std::min(begin + s.sliceSize, count);
+        uint32_t* ids = s.ids.data() + begin;
+        float* keys = s.keys.data() + begin;
+        uint32_t visible = 0;
+        float zmin = 1e30f, zmax = -1e30f;
+        for (uint32_t i = begin; i < finish; i++) {
+            const float* rec = records + (size_t)i * 4u;
+            const float px = rec[0], py = rec[1], pz = rec[2];
+            const float vz = f0*px + f1*py + f2*pz + t2;
+            const float z = -vz;  // positive distance in front
+            if (z < 0.05f || z > 2000.f) continue;
+            const float ms_ = rec[3];
+            const float wr = ms_ * 3.f;
+            const float vx = r0*px + r1*py + r2*pz + t0;
+            if (fabsf(vx) > z * tanX + wr) continue;
+            const float vy = u0*px + u1*py + u2*pz + t1;
+            if (fabsf(vy) > z * tanY + wr) continue;
+            // Projected 2*sqrt(2)*sigma extent below 2 px (minPixelSize=2.0)
+            if (focalY * ms_ * 2.83f / z < 2.0f) continue;
+            ids[visible] = i;
+            keys[visible] = z;
+            visible++;
+            if (z < zmin) zmin = z;
+            if (z > zmax) zmax = z;
+        }
+        s.taskVisible[t] = visible;
+        s.taskZMin[t] = zmin;
+        s.taskZMax[t] = zmax;
+    });
+
+    uint32_t visibleCount = 0;
+    float zmin = 1e30f, zmax = -1e30f;
+    for (uint32_t t = 0; t < tasks; t++) {
+        visibleCount += s.taskVisible[t];
+        if (s.taskZMin[t] < zmin) zmin = s.taskZMin[t];
+        if (s.taskZMax[t] > zmax) zmax = s.taskZMax[t];
+    }
+
+    const auto afterCull = std::chrono::steady_clock::now();
+    auto afterCount = afterCull;
+
+    if (visibleCount > 0) {
+        const float range = zmax - zmin;
+        const float invRange = (range > 1e-6f) ? (float)SORT_BUCKETS / range : 0.f;
+
+        // Pass 2 (parallel): per-task histogram (bucket-major layout).
+        pool.Run(tasks, [&](uint32_t t) {
+            uint32_t* hist = s.cursors.data() + t;
+            for (uint32_t b = 0; b < SORT_BUCKETS; b++) {
+                hist[(size_t)b * tasks] = 0u;
+            }
+            const uint32_t n = s.taskVisible[t];
+            const float* keys = s.keys.data() + (size_t)t * s.sliceSize;
+            for (uint32_t j = 0; j < n; j++) {
+                uint32_t b = (uint32_t)((zmax - keys[j]) * invRange);
+                if (b >= SORT_BUCKETS) b = SORT_BUCKETS - 1u;
+                hist[(size_t)b * tasks]++;
+            }
+        });
+
+        // Reduce (parallel over buckets), short sequential prefix, then
+        // absolute per-task cursors (parallel).
+        const uint32_t bucketChunk = (SORT_BUCKETS + tasks - 1u) / tasks;
+        pool.Run(tasks, [&](uint32_t t) {
+            const uint32_t begin = t * bucketChunk;
+            const uint32_t finish = std::min(begin + bucketChunk, SORT_BUCKETS);
+            for (uint32_t b = begin; b < finish; b++) {
+                const uint32_t* counts = s.cursors.data() + (size_t)b * tasks;
+                uint32_t sum = 0;
+                for (uint32_t u = 0; u < tasks; u++) {
+                    sum += counts[u];
+                }
+                s.bucketCounts[b] = sum;
+            }
+        });
+        uint32_t running = 0;
+        for (uint32_t b = 0; b < SORT_BUCKETS; b++) {
+            s.bucketStarts[b] = running;
+            running += s.bucketCounts[b];
+        }
+        pool.Run(tasks, [&](uint32_t t) {
+            const uint32_t begin = t * bucketChunk;
+            const uint32_t finish = std::min(begin + bucketChunk, SORT_BUCKETS);
+            for (uint32_t b = begin; b < finish; b++) {
+                uint32_t* counts = s.cursors.data() + (size_t)b * tasks;
+                uint32_t cursor = s.bucketStarts[b];
+                for (uint32_t u = 0; u < tasks; u++) {
+                    const uint32_t c = counts[u];
+                    counts[u] = cursor;
+                    cursor += c;
+                }
+            }
+        });
+
+        afterCount = std::chrono::steady_clock::now();
+
+        // Pass 3 (parallel): scatter each task's slice into the final order.
+        pool.Run(tasks, [&](uint32_t t) {
+            const uint32_t n = s.taskVisible[t];
+            const uint32_t* ids = s.ids.data() + (size_t)t * s.sliceSize;
+            const float* keys = s.keys.data() + (size_t)t * s.sliceSize;
+            uint32_t* cursors = s.cursors.data() + t;
+            for (uint32_t j = 0; j < n; j++) {
+                uint32_t b = (uint32_t)((zmax - keys[j]) * invRange);
+                if (b >= SORT_BUCKETS) b = SORT_BUCKETS - 1u;
+                out[cursors[(size_t)b * tasks]++] = ids[j];
+            }
+        });
+    }
+
+    if (timing) {
+        const auto sortEnd = std::chrono::steady_clock::now();
+        timing->totalMs = ms(sortBegin, sortEnd);
+        timing->cullMs = ms(sortBegin, afterCull);
+        timing->histMs = ms(afterCull, afterCount);
+        timing->scatterMs = ms(afterCount, sortEnd);
+    }
+    return visibleCount;
+}
+
+
 // ---------------------------------------------------------------------------
 // DESIGN NOTE: why the depth sort runs on the CPU (recorded for later review)
 // ---------------------------------------------------------------------------
@@ -241,6 +425,142 @@ private:
 // ---------------------------------------------------------------------------
 
 }  // namespace
+
+// ===================================================================
+// Async sort state
+// ===================================================================
+// The sort runs on a dedicated thread; the render thread keeps drawing with the
+// last finished order (PlayCanvas does the same with a web worker). Requests are
+// coalesced: only the newest camera state matters.
+struct RenderNodeGaussianSplatting::SortState {
+    SortScratch scratch;
+
+    std::mutex mutex;
+    std::condition_variable cvStart;
+    std::thread thread;
+    bool stop = false;
+
+    // Pending request (guarded by mutex)
+    bool requestPending = false;
+    uint64_t requestId = 0;
+    uint64_t finishedId = 0;
+    const float* records = nullptr;
+    uint32_t count = 0;
+    float view[16] = {};
+    float proj[16] = {};
+    float viewportHeight = 0.0f;
+
+    // Published result (guarded by mutex)
+    std::vector<uint32_t> result;
+    uint32_t resultCount = 0;
+    SortTiming resultTiming;
+    bool resultReady = false;
+
+    // Applied order (render thread only)
+    std::vector<uint32_t> applied;
+    uint32_t appliedCount = 0;
+    bool hasApplied = false;
+};
+
+RenderNodeGaussianSplatting::~RenderNodeGaussianSplatting()
+{
+    if (sortState_) {
+        {
+            std::lock_guard<std::mutex> lock(sortState_->mutex);
+            sortState_->stop = true;
+        }
+        sortState_->cvStart.notify_all();
+        if (sortState_->thread.joinable()) {
+            sortState_->thread.join();
+        }
+        delete sortState_;
+        sortState_ = nullptr;
+    }
+}
+
+void RenderNodeGaussianSplatting::ensureSortThread()
+{
+    if (!sortState_ || sortState_->thread.joinable()) {
+        return;
+    }
+    sortState_->thread = std::thread([this] {
+        SortState& state = *sortState_;
+        uint64_t seen = 0;
+        for (;;) {
+            const float* records = nullptr;
+            uint32_t count = 0;
+            float view[16] = {};
+            float proj[16] = {};
+            float viewportHeight = 0.0f;
+            uint64_t id = 0;
+            {
+                std::unique_lock<std::mutex> lock(state.mutex);
+                state.cvStart.wait(lock, [&state, &seen] {
+                    return state.stop || (state.requestPending && state.requestId != seen);
+                });
+                if (state.stop) {
+                    return;
+                }
+                seen = state.requestId;
+                id = state.requestId;
+                records = state.records;
+                count = state.count;
+                std::memcpy(view, state.view, sizeof(view));
+                std::memcpy(proj, state.proj, sizeof(proj));
+                viewportHeight = state.viewportHeight;
+                state.requestPending = false;
+            }
+
+            if (!records || count == 0) {
+                continue;
+            }
+            // The result buffer doubles as the scratch output; it is only read by
+            // the render thread under the mutex after publication.
+            state.result.resize(count);
+            SortTiming timing;
+            const uint32_t visible = ComputeSort(records, count, state.scratch, state.result.data(), view,
+                proj, viewportHeight, &timing);
+
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                state.resultCount = visible;
+                state.resultTiming = timing;
+                state.resultReady = true;
+                state.finishedId = id;
+            }
+        }
+    });
+}
+
+void RenderNodeGaussianSplatting::logSortStats(float totalMs, float cullMs, float histMs, float scatterMs)
+{
+    auto accumulate = [](float (&stat)[3], float v) {
+        if (v < stat[0]) stat[0] = v;
+        if (v > stat[2]) stat[2] = v;
+        stat[1] += v;
+    };
+    accumulate(statTotalMs_, totalMs);
+    accumulate(statCullMs_, cullMs);
+    accumulate(statHistMs_, histMs);
+    accumulate(statScatterMs_, scatterMs);
+    lastSortMs_ = totalMs;
+    statCount_++;
+    if (statCount_ >= 20u) {
+        const float inv = 1.0f / (float)statCount_;
+        PLUGIN_LOG_I("GS::Sort stats (%u sorts, %u/%u visible): total min/avg/max %.1f/%.1f/%.1f ms | cull %.1f/%.1f/%.1f | hist %.1f/%.1f/%.1f | scatter %.1f/%.1f/%.1f",
+            statCount_, visibleCount_, gaussianCount_,
+            statTotalMs_[0], statTotalMs_[1] * inv, statTotalMs_[2],
+            statCullMs_[0], statCullMs_[1] * inv, statCullMs_[2],
+            statHistMs_[0], statHistMs_[1] * inv, statHistMs_[2],
+            statScatterMs_[0], statScatterMs_[1] * inv, statScatterMs_[2]);
+        for (float* stat : { statTotalMs_, statCullMs_, statHistMs_, statScatterMs_ }) {
+            stat[0] = 1e9f;
+            stat[1] = 0.0f;
+            stat[2] = 0.0f;
+        }
+        statCount_ = 0;
+    }
+}
 
 // ===================================================================
 // InitNode — called once when the render node graph is created
@@ -310,19 +630,9 @@ void RenderNodeGaussianSplatting::InitNode(IRenderNodeContextManager& mgr)
         shDesc.engineCreationFlags = CORE_ENGINE_BUFFER_CREATION_DYNAMIC_BARRIERS;
         shBuffer_ = gpuResMgr.Create("GS_Sh", shDesc);
 
-        sortTasks_ = SortPool::Instance().Tasks();
-        sortSliceSize_ = (cnt + sortTasks_ - 1u) / sortTasks_;
-        const size_t sliceTotal = (size_t)sortSliceSize_ * sortTasks_;
-        sortIndices_.resize(sliceTotal);
-        sortScatter_.resize(cnt);
-        sortKeys_.resize(sliceTotal);
-        bucketCounts_.resize(SORT_BUCKETS + 1);
-        bucketStarts_.resize(SORT_BUCKETS + 1);
-        taskVisible_.resize(sortTasks_);
-        taskZMin_.resize(sortTasks_);
-        taskZMax_.resize(sortTasks_);
-        taskCursor_.resize((size_t)SORT_BUCKETS * sortTasks_);
-        for (uint32_t i = 0; i < cnt; i++) sortIndices_[i] = i;
+        if (!sortState_) {
+            sortState_ = new SortState();
+        }
 
         PLUGIN_LOG_I("GS: SSBO %u gaussians (%u MB)", cnt, (uint32_t)(cnt * 64ULL / (1024 * 1024)));
     }
@@ -503,19 +813,9 @@ void RenderNodeGaussianSplatting::PreExecuteFrame()
             sortIndexBuffer_[s] = gpuResMgr.Create("GS_SortIdx_Late", sortDesc);
         }
 
-        sortTasks_ = SortPool::Instance().Tasks();
-        sortSliceSize_ = (cnt + sortTasks_ - 1u) / sortTasks_;
-        const size_t sliceTotal = (size_t)sortSliceSize_ * sortTasks_;
-        sortIndices_.resize(sliceTotal);
-        sortScatter_.resize(cnt);
-        sortKeys_.resize(sliceTotal);
-        bucketCounts_.resize(SORT_BUCKETS + 1);
-        bucketStarts_.resize(SORT_BUCKETS + 1);
-        taskVisible_.resize(sortTasks_);
-        taskZMin_.resize(sortTasks_);
-        taskZMax_.resize(sortTasks_);
-        taskCursor_.resize((size_t)SORT_BUCKETS * sortTasks_);
-        for (uint32_t i = 0; i < cnt; i++) sortIndices_[i] = i;
+        if (!sortState_) {
+            sortState_ = new SortState();
+        }
 
         PLUGIN_LOG_I("GS: late SSBO creation %u gaussians", cnt);
 
@@ -532,6 +832,7 @@ void RenderNodeGaussianSplatting::PreExecuteFrame()
 // ===================================================================
 void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
 {
+    const auto execBegin = std::chrono::steady_clock::now();
     if (!initialized_ || gaussianCount_ == 0) return;
     if (!RenderHandleUtil::IsValid(psoHandle_)) {
         if (frameCount_ < 3) {
@@ -551,6 +852,22 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
             gpuResMgr.UnmapBuffer(gaussianBuffer_.GetHandle());
             PLUGIN_LOG_I("GS: uploaded %u gaussians to GPU", gaussianCount_);
         }
+        // Build the compact cull records (position + largest scale).
+        {
+            const GpuGaussianData* src = g_sp.Data();
+            cullRecords_.resize((size_t)gaussianCount_ * 4u);
+            float* dst = cullRecords_.data();
+            for (uint32_t i = 0; i < gaussianCount_; i++, dst += 4) {
+                const float msx = src[i].sx, msy = src[i].sy, msz = src[i].sz;
+                dst[0] = src[i].px;
+                dst[1] = src[i].py;
+                dst[2] = src[i].pz;
+                dst[3] = msx > msy ? (msx > msz ? msx : msz) : (msy > msz ? msy : msz);
+            }
+            PLUGIN_LOG_I("GS: built %u cull records (%u MB)", gaussianCount_,
+                (uint32_t)(cullRecords_.size() * sizeof(float) / (1024 * 1024)));
+        }
+
         // Upload SH coefficients (zeros when absent — SH eval contributes nothing)
         if (shBuffer_) {
             const size_t shBytes = (size_t)gaussianCount_ * 48ULL * sizeof(float);
@@ -690,184 +1007,61 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
                 (latT > moveScale) ||               // lateral (pan / orbit) movement
                 (fabsf(axial) > 20.f * moveScale);  // zoom: refresh cull set (2%)
 
-            if (viewChanged) {
-                const auto sortBegin = std::chrono::steady_clock::now();
+            if (viewChanged && sortState_) {
                 lastDirX_ = dirX; lastDirY_ = dirY; lastDirZ_ = dirZ;
                 lastEyeX_ = ex; lastEyeY_ = ey; lastEyeZ_ = ez;
 
-                const GpuGaussianData* data = g_sp.Data();
-                // View rows (column-major): right, up, forward
-                const float r0 = vm[0], r1 = vm[4], r2 = vm[8], t0 = vm[12];
-                const float u0 = vm[1], u1 = vm[5], u2 = vm[9], t1 = vm[13];
-                const float f0 = vm[2], f1 = vm[6], f2 = vm[10], t2 = vm[14];
-                // Frustum half-tangents with generous 2x margin (no false culls)
-                const float tanX = 2.0f / fabsf(pm[0]);
-                const float tanY = 2.0f / fabsf(pm[5]);
-                // Size cull: focal_y in pixels for screen radius estimate
-                const float focalY = fabsf(pm[5]) * (float)height * 0.5f;
-
-                SortPool& pool = SortPool::Instance();
-                const uint32_t tasks = sortTasks_;
-
-                // Pass 1 (parallel): cull + collect visible + per-task depth range.
-                // Each task writes into its own slice of sortIndices_/sortKeys_, so
-                // there is no compaction step and no shared write target.
-                pool.Run(tasks, [&](uint32_t t) {
-                    const uint32_t begin = t * sortSliceSize_;
-                    const uint32_t finish = begin + sortSliceSize_ < gaussianCount_
-                                                ? begin + sortSliceSize_
-                                                : gaussianCount_;
-                    uint32_t* ids = sortIndices_.data() + begin;
-                    float* keys = sortKeys_.data() + begin;
-                    uint32_t count = 0;
-                    float zmin = 1e30f, zmax = -1e30f;
-                    for (uint32_t i = begin; i < finish; i++) {
-                        const float px = data[i].px, py = data[i].py, pz = data[i].pz;
-                        const float vz = f0*px + f1*py + f2*pz + t2;
-                        const float z = -vz;  // positive distance in front
-                        if (z < 0.05f || z > 2000.f) continue;
-                        // Conservative world radius (3 sigma) for frustum margin
-                        const float msx = data[i].sx, msy = data[i].sy, msz = data[i].sz;
-                        const float ms = msx > msy ? (msx > msz ? msx : msz) : (msy > msz ? msy : msz);
-                        const float wr = ms * 3.f;
-                        // Frustum cull with world-radius margin (center + extent)
-                        const float vx = r0*px + r1*py + r2*pz + t0;
-                        if (fabsf(vx) > z * tanX + wr) continue;
-                        const float vy = u0*px + u1*py + u2*pz + t1;
-                        if (fabsf(vy) > z * tanY + wr) continue;
-                        // Size cull: projected 2*sqrt(2)*sigma extent below 2px
-                        if (focalY * ms * 2.83f / z < 2.0f) continue;
-                        ids[count] = i;
-                        keys[count] = z;
-                        count++;
-                        if (z < zmin) zmin = z;
-                        if (z > zmax) zmax = z;
-                    }
-                    taskVisible_[t] = count;
-                    taskZMin_[t] = zmin;
-                    taskZMax_[t] = zmax;
-                });
-
-                uint32_t visible = 0;
-                float zmin = 1e30f, zmax = -1e30f;
-                for (uint32_t t = 0; t < tasks; t++) {
-                    visible += taskVisible_[t];
-                    if (taskZMin_[t] < zmin) zmin = taskZMin_[t];
-                    if (taskZMax_[t] > zmax) zmax = taskZMax_[t];
-                }
-                visibleCount_ = visible;
-
-                const auto afterCull = std::chrono::steady_clock::now();
-                auto afterCount = afterCull;
-
-                if (visibleCount_ > 0 && visibleCount_ <= gaussianCount_) {
-                    // Bucket back-to-front: farthest (large z) first -> small index
-                    const float range = zmax - zmin;
-                    const float invRange = (range > 1e-6f) ? (float)SORT_BUCKETS / range : 0.f;
-
-                    // Pass 2 (parallel): per-task histogram, bucket-major layout so
-                    // the reduction below reads contiguous per-bucket task counts.
-                    pool.Run(tasks, [&](uint32_t t) {
-                        uint32_t* hist = taskCursor_.data() + t;
-                        for (uint32_t b = 0; b < SORT_BUCKETS; b++) {
-                            hist[(size_t)b * tasks] = 0u;
-                        }
-                        const uint32_t base = t * sortSliceSize_;
-                        const uint32_t n = taskVisible_[t];
-                        const float* keys = sortKeys_.data() + base;
-                        for (uint32_t j = 0; j < n; j++) {
-                            uint32_t b = (uint32_t)((zmax - keys[j]) * invRange);
-                            if (b >= SORT_BUCKETS) b = SORT_BUCKETS - 1u;
-                            hist[(size_t)b * tasks]++;
-                        }
-                    });
-
-                    // Reduce histograms (parallel over bucket ranges), then a short
-                    // sequential prefix, then absolute per-task cursors (parallel).
-                    const uint32_t bucketChunk = (SORT_BUCKETS + tasks - 1u) / tasks;
-                    pool.Run(tasks, [&](uint32_t t) {
-                        const uint32_t begin = t * bucketChunk;
-                        const uint32_t finish = std::min(begin + bucketChunk, SORT_BUCKETS);
-                        for (uint32_t b = begin; b < finish; b++) {
-                            const uint32_t* counts = taskCursor_.data() + (size_t)b * tasks;
-                            uint32_t sum = 0;
-                            for (uint32_t u = 0; u < tasks; u++) {
-                                sum += counts[u];
-                            }
-                            bucketCounts_[b] = sum;
-                        }
-                    });
-                    uint32_t running = 0;
-                    for (uint32_t b = 0; b < SORT_BUCKETS; b++) {
-                        bucketStarts_[b] = running;
-                        running += bucketCounts_[b];
-                    }
-                    pool.Run(tasks, [&](uint32_t t) {
-                        const uint32_t begin = t * bucketChunk;
-                        const uint32_t finish = std::min(begin + bucketChunk, SORT_BUCKETS);
-                        for (uint32_t b = begin; b < finish; b++) {
-                            uint32_t* counts = taskCursor_.data() + (size_t)b * tasks;
-                            uint32_t cursor = bucketStarts_[b];
-                            for (uint32_t u = 0; u < tasks; u++) {
-                                const uint32_t c = counts[u];
-                                counts[u] = cursor;
-                                cursor += c;
-                            }
-                        }
-                    });
-
-                    afterCount = std::chrono::steady_clock::now();
-
-                    // Pass 3 (parallel): scatter each task's slice into the final order
-                    pool.Run(tasks, [&](uint32_t t) {
-                        const uint32_t base = t * sortSliceSize_;
-                        const uint32_t n = taskVisible_[t];
-                        const uint32_t* ids = sortIndices_.data() + base;
-                        const float* keys = sortKeys_.data() + base;
-                        uint32_t* cursors = taskCursor_.data() + t;
-                        for (uint32_t j = 0; j < n; j++) {
-                            uint32_t b = (uint32_t)((zmax - keys[j]) * invRange);
-                            if (b >= SORT_BUCKETS) b = SORT_BUCKETS - 1u;
-                            sortScatter_[cursors[(size_t)b * tasks]++] = ids[j];
-                        }
-                    });
+                if (!sortState_->hasApplied) {
+                    // First sort for this model: run it inline so the very first
+                    // frame is correctly ordered.
+                    sortState_->applied.resize(gaussianCount_);
+                    SortTiming timing;
+                    sortState_->appliedCount = ComputeSort(cullRecords_.data(), gaussianCount_,
+                        sortState_->scratch, sortState_->applied.data(), vm, pm, (float)height, &timing);
+                    sortState_->hasApplied = true;
+                    visibleCount_ = sortState_->appliedCount;
                     sortBufferUploaded_ = true;
-                }
-
-                const auto sortEnd = std::chrono::steady_clock::now();
-                auto ms = [](std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
-                    return std::chrono::duration<float, std::milli>(b - a).count();
-                };
-                const float totalMs = ms(sortBegin, sortEnd);
-                const float cullMs = ms(sortBegin, afterCull);
-                const float histMs = ms(afterCull, afterCount);
-                const float scatterMs = ms(afterCount, sortEnd);
-                lastSortMs_ = totalMs;
-
-                auto accumulate = [](float (&stat)[3], float v) {
-                    if (v < stat[0]) stat[0] = v;
-                    if (v > stat[2]) stat[2] = v;
-                    stat[1] += v;
-                };
-                accumulate(statTotalMs_, totalMs);
-                accumulate(statCullMs_, cullMs);
-                accumulate(statHistMs_, histMs);
-                accumulate(statScatterMs_, scatterMs);
-                statCount_++;
-                if (statCount_ >= 20u) {
-                    const float inv = 1.0f / (float)statCount_;
-                    PLUGIN_LOG_I("GS::Sort stats (%u sorts, %u/%u visible): total min/avg/max %.1f/%.1f/%.1f ms | cull %.1f/%.1f/%.1f | hist %.1f/%.1f/%.1f | scatter %.1f/%.1f/%.1f",
-                        statCount_, visibleCount_, gaussianCount_,
-                        statTotalMs_[0], statTotalMs_[1] * inv, statTotalMs_[2],
-                        statCullMs_[0], statCullMs_[1] * inv, statCullMs_[2],
-                        statHistMs_[0], statHistMs_[1] * inv, statHistMs_[2],
-                        statScatterMs_[0], statScatterMs_[1] * inv, statScatterMs_[2]);
-                    for (float* stat : { statTotalMs_, statCullMs_, statHistMs_, statScatterMs_ }) {
-                        stat[0] = 1e9f;
-                        stat[1] = 0.0f;
-                        stat[2] = 0.0f;
+                    logSortStats(timing.totalMs, timing.cullMs, timing.histMs, timing.scatterMs);
+                } else {
+                    // Hand the newest camera state to the sort thread. Requests
+                    // are coalesced: if one is still pending the snapshot is
+                    // replaced, and the worker always uses the latest.
+                    {
+                        std::lock_guard<std::mutex> lock(sortState_->mutex);
+                        std::memcpy(sortState_->view, vm, sizeof(sortState_->view));
+                        std::memcpy(sortState_->proj, pm, sizeof(sortState_->proj));
+                        sortState_->viewportHeight = (float)height;
+                        sortState_->records = cullRecords_.data();
+                        sortState_->count = gaussianCount_;
+                        sortState_->requestPending = true;
+                        ++sortState_->requestId;
                     }
-                    statCount_ = 0;
+                    sortState_->cvStart.notify_one();
+                    ensureSortThread();
+                }
+            }
+
+            // Adopt a newly finished order (never blocks on the worker: the
+            // worker only holds the mutex while publishing).
+            if (sortState_) {
+                SortTiming timing;
+                bool adopted = false;
+                {
+                    std::lock_guard<std::mutex> lock(sortState_->mutex);
+                    if (sortState_->resultReady) {
+                        sortState_->applied.assign(sortState_->result.begin(),
+                            sortState_->result.begin() + sortState_->resultCount);
+                        sortState_->appliedCount = sortState_->resultCount;
+                        sortState_->resultReady = false;
+                        adopted = true;
+                        timing = sortState_->resultTiming;
+                    }
+                }
+                if (adopted) {
+                    sortState_->hasApplied = true;
+                    visibleCount_ = sortState_->appliedCount;
+                    sortBufferUploaded_ = true;
+                    logSortStats(timing.totalMs, timing.cullMs, timing.histMs, timing.scatterMs);
                 }
             }
 
@@ -876,8 +1070,8 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
             // Tail padded with 0xFFFFFFFF sentinel — shader skips those entries.
             void* sortMapped = gpuResMgr.MapBuffer(sortIndexBuffer_[slot].GetHandle());
             if (sortMapped) {
-                if (visibleCount_ > 0) {
-                    std::memcpy(sortMapped, sortScatter_.data(), visibleCount_ * sizeof(uint32_t));
+                if (visibleCount_ > 0 && sortState_ && sortState_->hasApplied) {
+                    std::memcpy(sortMapped, sortState_->applied.data(), visibleCount_ * sizeof(uint32_t));
                 }
                 std::memset((uint8_t*)sortMapped + visibleCount_ * sizeof(uint32_t), 0xFF,
                     (size_t)(gaussianCount_ - visibleCount_) * sizeof(uint32_t));
@@ -1030,6 +1224,23 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
         cmdList.SetDynamicStateScissor(sc);
         cmdList.Draw(3u, 1u, 0u, 0u);  // fullscreen triangle
         cmdList.EndRenderPass();
+    }
+
+    {
+        const float execMs = std::chrono::duration<float, std::milli>(
+            std::chrono::steady_clock::now() - execBegin).count();
+        execSumMs_ += execMs;
+        if (execMs > execMaxMs_) {
+            execMaxMs_ = execMs;
+        }
+        if (++execCount_ >= 60u) {
+            const float avg = execSumMs_ / (float)execCount_;
+            PLUGIN_LOG_I("GS::ExecuteFrame cost: avg %.2f ms, max %.2f ms over %u frames (sort avg %.1f ms)",
+                avg, execMaxMs_, execCount_, lastSortMs_);
+            execSumMs_ = 0.0f;
+            execMaxMs_ = 0.0f;
+            execCount_ = 0;
+        }
     }
 
     if (frameCount_ < 3 || (frameCount_ % 300 == 0)) {

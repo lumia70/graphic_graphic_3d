@@ -15,6 +15,8 @@
 #include <base/containers/vector.h>
 #include <base/util/uid.h>
 
+#include <chrono>
+
 RENDER_BEGIN_NAMESPACE()
 
 class IRenderNodeContextManager;
@@ -22,7 +24,7 @@ class IRenderNodeContextManager;
 class RenderNodeGaussianSplatting final : public IRenderNode {
 public:
     RenderNodeGaussianSplatting() = default;
-    ~RenderNodeGaussianSplatting() override = default;
+    ~RenderNodeGaussianSplatting() override;
 
     // IRenderNode interface
     void InitNode(IRenderNodeContextManager& renderNodeContextMgr) override;
@@ -54,6 +56,9 @@ public:
     };
 
 private:
+    void ensureSortThread();
+    void logSortStats(float totalMs, float cullMs, float histMs, float scatterMs);
+
     IRenderNodeContextManager* renderNodeContextMgr_ = nullptr;
 
     // GPU resources
@@ -77,21 +82,13 @@ private:
     RenderHandle copyPsoHandle_;
     IPipelineDescriptorSetBinder::Ptr copyBinder_;
 
-    // CPU-side back-to-front sort state
-    BASE_NS::vector<uint32_t> sortIndices_;   // visible gaussian ids (pre-scatter)
-    BASE_NS::vector<uint32_t> sortScatter_;  // final sorted order
-    BASE_NS::vector<float> sortKeys_;        // per-visible depth key
-    BASE_NS::vector<uint32_t> bucketCounts_;
-    BASE_NS::vector<uint32_t> bucketStarts_;
-    // Parallel bucket sort scratch. The gaussian range is split into sortTasks_
-    // slices; each task culls into its own slice, keeps its own histogram and
-    // scatters with its own bucket cursors, so no cross-thread atomics are needed.
-    uint32_t sortTasks_ = 1;
-    uint32_t sortSliceSize_ = 0;
-    BASE_NS::vector<uint32_t> taskVisible_;
-    BASE_NS::vector<float> taskZMin_;
-    BASE_NS::vector<float> taskZMax_;
-    BASE_NS::vector<uint32_t> taskCursor_;   // bucket-major: [bucket * sortTasks_ + task]
+    // Sort scratch + async sort worker + currently applied order. Defined in
+    // the .cpp so the thread/mutex/slot machinery stays out of this header.
+    struct SortState;
+    SortState* sortState_ = nullptr;
+    // Compact cull input (px, py, pz, maxScale = 16 B) built once per upload so
+    // the sort's cull pass streams 16 B/gaussian instead of the full 64 B record.
+    BASE_NS::vector<float> cullRecords_;
     uint32_t visibleCount_ = 0;
     // Coarse view-change tracking (re-sort threshold)
     float lastDirX_ = 0.f, lastDirY_ = 0.f, lastDirZ_ = -1.f;
@@ -107,6 +104,11 @@ private:
     float statHistMs_[3] = { 1e9f, 0.0f, 0.0f };
     float statScatterMs_[3] = { 1e9f, 0.0f, 0.0f };
     uint32_t statCount_ = 0;
+    // Frame pacing: average interval between ExecuteFrame calls (render thread
+    // health; a blocking sort shows up here immediately).
+    float execSumMs_ = 0.0f;
+    float execMaxMs_ = 0.0f;
+    uint32_t execCount_ = 0;
 
     // Shader + PSO
     RenderHandle shaderHandle_;

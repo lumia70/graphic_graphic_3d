@@ -347,11 +347,40 @@ fruit_bowl 默认 DC-only，所以没有视觉影响；若要启用该模型的 
 - 排序结果与单线程版本**逐像素一致**（bucket 分配未变，桶内跨片顺序等于原顺序）。
 - avg 与 min 差距大（cull 6 → 21 ms）说明剩余瓶颈是 CPU 调度/降频，而不是算法：
   6 worker 反而更抖，因此固定 4。
-- 下一步候选：给 cull 预生成 16 B 紧凑记录（pos + maxScale）把内存流量从 64 B
-  降到 16 B；以及像 PlayCanvas 那样把排序放到后台线程 + 双缓冲（只上传上一帧
-  结果），从而把排序耗时移出渲染线程的临界路径。
 
-### 8.2 PlayCanvas 的排序做法（对照）
+### 8.2 紧凑 cull 记录（16 B）
+
+`cullRecords_` 在模型上传时生成一次（`px, py, pz, maxScale`，16 B/高斯），
+cull pass 只读它而不是完整的 64 B 顶点记录：750k 模型 11 MB、1.07M 模型 16 MB。
+实测 cull 段 22 → 18 ms（约 15%），收益有限——说明该段已接近**延迟/调度**受限，
+而不是带宽受限。
+
+### 8.3 异步排序（专用线程 + 双缓冲）
+
+排序搬到专用线程，渲染线程只用"上一次排完的结果"（与 PlayCanvas 的 worker 方案一致）：
+
+```text
+渲染线程：viewChanged ? 快照 (view/proj/height/records) -> requestId++ : 什么都不做
+         每帧：adopt 最新完成结果（互斥量内 3 MB 拷贝）-> 上传本 frame slot
+排序线程：等待 requestId 变化 -> ComputeSort（内部仍用 4 worker 并行）-> 发布结果
+```
+
+- 请求**合并**：排序进行中再次请求只更新快照，worker 始终用最新相机状态。
+- 首个模型的首帧仍同步排序（避免第一帧顺序错乱），之后全部异步。
+- 实测渲染线程 `ExecuteFrame` 成本（曾经 = 排序耗时）：
+
+| 模型 | 同步排序时 ExecuteFrame | 异步后 avg / max | worker 排序 |
+| --- | --- | --- | --- |
+| doll.glb | 30–41 ms | 0.30 / 1.4 ms | 15–17 ms |
+| fruit_bowl.ply | 61–69 ms | 0.36 / 1.6 ms | 19–25 ms |
+| fruit_bowl.sog | 68 ms | 0.99 / 4.9 ms | 19–25 ms |
+| godzilla.splat | 87 ms | 0.92 / 4.9 ms | 24 ms |
+
+- 代价：快速旋转时排序可能落后一次（15–25 ms），表现为极短暂的前后层次错位；
+  与 PlayCanvas 行为一致，肉眼几乎不可见。
+- 切模型时仍有一次同步冷排序尖峰（~285 ms，含 3 MB 上传与缺页），属预期。
+
+### 8.4 PlayCanvas 的排序做法（对照）
 
 `playcanvas/engine` 的 `GSplatSorter` 用**独立 Web Worker**（CPU、非渲染线程）做
 计数排序：桶数自适应 `2^clamp(round(log2(n/4)),10,20)`，先用 chunk 包围球做 32 桶
