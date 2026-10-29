@@ -12,7 +12,9 @@
 #include <native_window/external_window.h>
 #include <rawfile/raw_file_manager.h>
 
+#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <sys/stat.h>
@@ -159,8 +161,9 @@ struct OrbitCamera {
     // Double-tap shortcut: toggle between far framing and the model centre
     double lastTapTimeMs = 0.0;
     float lastTapX = 0.0f, lastTapY = 0.0f;
-    float savedDistance = 0.0f;
-    bool insideView = false;
+    float farDistance = 100.0f;    // full-scene framing (double-tap target)
+    float insideDistance = 4.0f;   // near the content centre (startup view)
+    bool insideView = true;
 
     // Rotate vector v around unit axis k by angle (Rodrigues)
     static void RotateVec(float& vx, float& vy, float& vz,
@@ -1080,114 +1083,235 @@ static void GenerateTestGaussians(SplatData& out)
     LOGI("Test gaussians generated: %{public}u total", out.gaussianCount);
 }
 
-void LoadSplatModel()
-{
-    // Demo model selection:
-    //   0 = fruit_bowl.ply  (standard 3DGS PLY, colour-calibration reference)
-    //   1 = godzilla.splat  (compressed .splat chunk format, indoor scene)
-    //   2 = doll.glb        (glTF 2.0 + UWA_gaussian_splatting extension)
-    constexpr int kDemoModel = 2;
+// Demo models and their per-model rendering configuration.
+struct DemoModelConfig {
+    const char* file;
+    float fovYDeg;
+    float shDeg1;
+    float shDeg23;
+    // Optional recorded viewpoint (orientation only). When hasView is false an
+    // identity basis is used. The orbit target is the subject centroid unless
+    // target[] is non-zero.
+    bool hasView;
+    float right[3];
+    float up[3];
+    float back[3];
+    float target[3];
+    // <= 0 means "derive from the robust subject radius".
+    float insideDistance;
+    float farDistance;
+};
+static const DemoModelConfig kDemoModels[] = {
+    // Standard 3DGS PLY. The bounds cover a whole room, so the auto-frame lands
+    // inside the geometry; use the viewpoint recorded to match the web capture
+    // (keeping it also makes the far view reproduce the web reference framing).
+    { "fruit_bowl.ply", 60.0f, 0.0f, 0.0f, true,
+        { -0.717920f, 0.024674f, -0.695681f },
+        { 0.326028f, -0.871066f, -0.367345f },
+        { -0.615049f, -0.490535f, 0.617311f },
+        { 3.886603f, -1.901034f, 0.267847f },
+        0.f, 57.762306f },
+    // Compressed .splat, no SH data.
+    { "godzilla.splat", 80.0f, 0.0f, 0.0f, false, {}, {}, {}, {}, 0.0f, 0.0f },
+    // UWA glTF with vector-quantised SH. The bounds are dominated by the
+    // environment shell, so use the framing that matches the reference capture.
+    { "doll.glb", 60.0f, 1.0f, 1.0f, false, {}, {}, {}, {}, 42.0f, 250.0f },
+};
+static constexpr int kDemoModelCount = (int)(sizeof(kDemoModels) / sizeof(kDemoModels[0]));
+static int g_modelIndex = 2;  // doll by default
+static int g_pendingModelIndex = -1;  // set from ArkTS, applied on the render thread
 
-    bool loaded = false;
-    if (kDemoModel == 1) {
-        std::string splatPath = g_filesDir + "/assets/godzilla.splat";
-        LOGI("Loading splat: %{public}s", splatPath.c_str());
-        loaded = LoadSplatFile(splatPath.c_str(), g_lume.splatData);
-    } else if (kDemoModel == 2) {
-        std::string glbPath = g_filesDir + "/assets/doll.glb";
-        LOGI("Loading splat glb: %{public}s", glbPath.c_str());
-        loaded = LoadUwaSplatGlb(glbPath.c_str(), g_lume.splatData);
-    } else {
-        std::string plyPath = g_filesDir + "/assets/fruit_bowl.ply";
-        LOGI("Loading splat: %{public}s", plyPath.c_str());
-        loaded = LoadStandard3DgsPly(plyPath.c_str(), g_lume.splatData, 100.0f);
+// Robust framing statistics. Raw bounds are misleading: a few outlier
+// gaussians (room walls, an environment sphere) can stretch them far beyond
+// the actual subject, which made the camera start inside the geometry.
+struct SplatFraming {
+    float cx, cy, cz;   // opacity-weighted centroid
+    float r50, r80, r90;  // percentile radii around the centroid
+};
+
+static SplatFraming ComputeSplatFraming(const SplatData& data)
+{
+    SplatFraming f {};
+    const uint32_t n = data.gaussianCount;
+    if (n == 0 || data.gaussians.empty()) {
+        return f;
     }
 
-    if (loaded) {
-        g_lume.splatLoaded = true;
-        LOGI("Splat loaded: %{public}u gaussians, bounds=(%{public}.2f,%{public}.2f,%{public}.2f)-(%{public}.2f,%{public}.2f,%{public}.2f)",
-            g_lume.splatData.gaussianCount,
-            g_lume.splatData.boundsMin[0], g_lume.splatData.boundsMin[1], g_lume.splatData.boundsMin[2],
-            g_lume.splatData.boundsMax[0], g_lume.splatData.boundsMax[1], g_lume.splatData.boundsMax[2]);
-        // Print first few gaussians for verification
-        for (uint32_t i = 0; i < 3 && i < g_lume.splatData.gaussianCount; i++) {
-            auto& g = g_lume.splatData.gaussians[i];
-            LOGI("  g[%{public}u] pos=(%{public}.3f,%{public}.3f,%{public}.3f) scale=(%{public}.4f,%{public}.4f,%{public}.4f) color=(%{public}.2f,%{public}.2f,%{public}.2f,%{public}.2f)",
-                i, g.px, g.py, g.pz, g.sx, g.sy, g.sz, g.cr, g.cg, g.cb, g.opacity);
-        }
+    constexpr uint32_t kBins = 1024;
+    double sx = 0.0, sy = 0.0, sz = 0.0, sw = 0.0;
+    for (uint32_t i = 0; i < n; i++) {
+        const auto& g = data.gaussians[i];
+        const double w = 1.0 / (1.0 + std::exp(-(double)g.opacity));
+        sx += (double)g.px * w;
+        sy += (double)g.py * w;
+        sz += (double)g.pz * w;
+        sw += w;
+    }
+    if (sw <= 0.0) {
+        return f;
+    }
+    const float cx = (float)(sx / sw);
+    const float cy = (float)(sy / sw);
+    const float cz = (float)(sz / sw);
 
-        // Per-model FOV: godzilla's reference app uses 80°, everything else 60°.
-        g_orbitCam.fovYDeg = (kDemoModel == 1) ? 80.0f : 60.0f;
-        // Per-model SH: the doll's VQ-SH matches its reference renderer (measured
-        // saturation/contrast inside the reference range); the fruit-bowl PLY is
-        // matched against a DC-dominant web viewer, and godzilla carries no SH.
-        g_orbitCam.shDeg1 = (kDemoModel == 2) ? 1.0f : 0.0f;
-        g_orbitCam.shDeg23 = (kDemoModel == 2) ? 1.0f : 0.0f;
+    float rmax = 0.0f;
+    for (uint32_t i = 0; i < n; i++) {
+        const auto& g = data.gaussians[i];
+        const float dx = g.px - cx, dy = g.py - cy, dz = g.pz - cz;
+        const float r = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (r > rmax) rmax = r;
+    }
+    if (rmax <= 0.0f) {
+        return f;
+    }
 
-        if (kDemoModel == 0) {
-            // Reference viewpoint — recorded from the user's manual match to the
-            // web capture (ORBITCAM[after-touch] log, same framing as web.png).
-            // The app now always starts at this angle so color comparisons stay valid.
-            g_orbitCam.rightX = -0.717920f; g_orbitCam.rightY = 0.024674f; g_orbitCam.rightZ = -0.695681f;
-            g_orbitCam.upX    =  0.326028f; g_orbitCam.upY    = -0.871066f; g_orbitCam.upZ    = -0.367345f;
-            g_orbitCam.backX  = -0.615049f; g_orbitCam.backY  = -0.490535f; g_orbitCam.backZ  =  0.617311f;
-            g_orbitCam.targetX = 3.886603f; g_orbitCam.targetY = -1.901034f; g_orbitCam.targetZ = 0.267847f;
-            g_orbitCam.distance = 57.762306f;
-        } else {
-            // Auto-frame from the model bounds: axis-aligned identity basis,
-            // target at the bounding-box centre, distance fitted to the extent.
-            float cx = (g_lume.splatData.boundsMin[0] + g_lume.splatData.boundsMax[0]) * 0.5f;
-            float cy = (g_lume.splatData.boundsMin[1] + g_lume.splatData.boundsMax[1]) * 0.5f;
-            float cz = (g_lume.splatData.boundsMin[2] + g_lume.splatData.boundsMax[2]) * 0.5f;
-            float ex = g_lume.splatData.boundsMax[0] - g_lume.splatData.boundsMin[0];
-            float ey = g_lume.splatData.boundsMax[1] - g_lume.splatData.boundsMin[1];
-            float ez = g_lume.splatData.boundsMax[2] - g_lume.splatData.boundsMin[2];
-            float maxExtent = ex > ey ? (ex > ez ? ex : ez) : (ey > ez ? ey : ez);
-            g_orbitCam.rightX = 1.f; g_orbitCam.rightY = 0.f; g_orbitCam.rightZ = 0.f;
-            g_orbitCam.upX = 0.f; g_orbitCam.upY = 1.f; g_orbitCam.upZ = 0.f;
-            g_orbitCam.backX = 0.f; g_orbitCam.backY = 0.f; g_orbitCam.backZ = 1.f;
-            g_orbitCam.targetX = cx;
-            g_orbitCam.targetY = cy;
-            g_orbitCam.targetZ = cz;
-            g_orbitCam.distance = (maxExtent > 0.01f ? maxExtent * 1.6f : 50.f);
-            if (kDemoModel == 2) {
-                // Deterministic comparison view for the doll: inside the
-                // environment sphere, close to the subject (matches the
-                // reference capture framing).
-                g_orbitCam.targetX = 0.f; g_orbitCam.targetY = 0.f; g_orbitCam.targetZ = 0.f;
-                g_orbitCam.distance = 42.f;
+    std::vector<uint32_t> hist(kBins, 0u);
+    const float binScale = (float)kBins / rmax;
+    for (uint32_t i = 0; i < n; i++) {
+        const auto& g = data.gaussians[i];
+        const float dx = g.px - cx, dy = g.py - cy, dz = g.pz - cz;
+        const float r = std::sqrt(dx * dx + dy * dy + dz * dz);
+        uint32_t b = (uint32_t)(r * binScale);
+        if (b >= kBins) b = kBins - 1;
+        hist[b]++;
+    }
+
+    auto radiusAt = [&](float fraction) {
+        const uint32_t target = (uint32_t)(fraction * (float)n);
+        uint32_t acc = 0;
+        for (uint32_t b = 0; b < kBins; b++) {
+            acc += hist[b];
+            if (acc >= target) {
+                return (float)(b + 1) / binScale;
             }
         }
-        g_orbitCam.LogState("initial");
+        return rmax;
+    };
 
-        // Feed data to the RenderNode via shared globals
-        static_assert(sizeof(GaussianSplatGPU) == sizeof(GpuGaussianData),
-            "GaussianSplatGPU must match GpuGaussianData layout");
-        g_gaussianSplatData = reinterpret_cast<const GpuGaussianData*>(g_lume.splatData.gaussians.data());
-        g_gaussianSplatCount = g_lume.splatData.gaussianCount;
-        g_gaussianShData = g_lume.splatData.sh.empty() ? nullptr : g_lume.splatData.sh.data();
-        g_gaussianDataReady = true;
-        LOGI("Splat data passed to shared globals for RenderNode");
+    f.cx = cx; f.cy = cy; f.cz = cz;
+    f.r50 = radiusAt(0.50f);
+    f.r80 = radiusAt(0.80f);
+    f.r90 = radiusAt(0.90f);
+    return f;
+}
 
-        // Create a RNG (Render Node Graph) for the gaussian splatting node
-        auto& rngMgr = g_lume.renderContext->GetRenderNodeGraphManager();
-        RENDER_NS::RenderNodeGraphDesc rngDesc {};
-        rngDesc.renderNodeGraphName = "GaussianSplatRNG";
+static void ReleaseSplatModel()
+{
+    // Release the RNG first: it owns the RenderNode (and its GPU buffers),
+    // which must not outlive the CPU-side splat arrays.
+    g_lume.splatRngHandle = {};
+    g_gaussianSplatData = nullptr;
+    g_gaussianSplatCount = 0;
+    g_gaussianShData = nullptr;
+    g_gaussianDataReady = false;
+    g_lume.splatData = SplatData {};
+    g_lume.splatLoaded = false;
+}
 
-        RENDER_NS::RenderNodeDesc nodeDesc {};
-        nodeDesc.typeName = "RenderNodeGaussianSplatting";
-        nodeDesc.nodeName = "GaussianSplatNode";
-        // No renderPass config here — the RenderNode handles its own render pass in ExecuteFrame
-        rngDesc.nodes.push_back(BASE_NS::move(nodeDesc));
+void LoadSplatModel()
+{
+    ReleaseSplatModel();
 
-        g_lume.splatRngHandle = rngMgr.Create(
-            RENDER_NS::IRenderNodeGraphManager::RenderNodeGraphUsageType::RENDER_NODE_GRAPH_STATIC,
-            rngDesc);
-        LOGI("Gaussian splat RNG created: valid=%{public}d",
-            g_lume.splatRngHandle ? 1 : 0);
+    const DemoModelConfig& cfg = kDemoModels[g_modelIndex];
+    std::string path = g_filesDir + "/assets/" + cfg.file;
+    LOGI("Loading splat model: %{public}s", path.c_str());
+
+    bool loaded = false;
+    if (strstr(cfg.file, ".glb") != nullptr) {
+        loaded = LoadUwaSplatGlb(path.c_str(), g_lume.splatData);
+    } else if (strstr(cfg.file, ".splat") != nullptr) {
+        loaded = LoadSplatFile(path.c_str(), g_lume.splatData);
     } else {
-        LOGE("Failed to load splat model %{public}d", kDemoModel);
+        loaded = LoadStandard3DgsPly(path.c_str(), g_lume.splatData, 100.0f);
     }
+
+    if (!loaded) {
+        LOGE("Failed to load splat model: %{public}s", path.c_str());
+        return;
+    }
+
+    g_lume.splatLoaded = true;
+    LOGI("Splat loaded: %{public}u gaussians, bounds=(%{public}.2f,%{public}.2f,%{public}.2f)-(%{public}.2f,%{public}.2f,%{public}.2f)",
+        g_lume.splatData.gaussianCount,
+        g_lume.splatData.boundsMin[0], g_lume.splatData.boundsMin[1], g_lume.splatData.boundsMin[2],
+        g_lume.splatData.boundsMax[0], g_lume.splatData.boundsMax[1], g_lume.splatData.boundsMax[2]);
+    for (uint32_t i = 0; i < 3 && i < g_lume.splatData.gaussianCount; i++) {
+        auto& g = g_lume.splatData.gaussians[i];
+        LOGI("  g[%{public}u] pos=(%{public}.3f,%{public}.3f,%{public}.3f) scale=(%{public}.4f,%{public}.4f,%{public}.4f) color=(%{public}.2f,%{public}.2f,%{public}.2f,%{public}.2f)",
+            i, g.px, g.py, g.pz, g.sx, g.sy, g.sz, g.cr, g.cg, g.cb, g.opacity);
+    }
+
+    // ---- Per-model rendering configuration ----
+    g_orbitCam.fovYDeg = cfg.fovYDeg;
+    g_orbitCam.shDeg1 = cfg.shDeg1;
+    g_orbitCam.shDeg23 = cfg.shDeg23;
+
+    // ---- Framing: start close to the content; double-tap toggles between
+    // this inside view and the full far framing. Models with a recorded
+    // viewpoint keep its orientation; the orbit target and distances come from
+    // robust statistics so outliers (walls, env spheres) do not swallow the view.
+    const SplatFraming framing = ComputeSplatFraming(g_lume.splatData);
+    const float ex = g_lume.splatData.boundsMax[0] - g_lume.splatData.boundsMin[0];
+    const float ey = g_lume.splatData.boundsMax[1] - g_lume.splatData.boundsMin[1];
+    const float ez = g_lume.splatData.boundsMax[2] - g_lume.splatData.boundsMin[2];
+    float maxExtent = ex > ey ? (ex > ez ? ex : ez) : (ey > ez ? ey : ez);
+    if (maxExtent < 0.01f) maxExtent = 100.0f;
+    const float subjectRadius = (framing.r80 > 0.01f) ? framing.r80 : maxExtent * 0.5f;
+    LOGI("Framing: center=(%{public}.2f,%{public}.2f,%{public}.2f) r50=%{public}.2f r80=%{public}.2f r90=%{public}.2f",
+        framing.cx, framing.cy, framing.cz, framing.r50, framing.r80, framing.r90);
+
+    if (cfg.hasView) {
+        g_orbitCam.rightX = cfg.right[0]; g_orbitCam.rightY = cfg.right[1]; g_orbitCam.rightZ = cfg.right[2];
+        g_orbitCam.upX = cfg.up[0]; g_orbitCam.upY = cfg.up[1]; g_orbitCam.upZ = cfg.up[2];
+        g_orbitCam.backX = cfg.back[0]; g_orbitCam.backY = cfg.back[1]; g_orbitCam.backZ = cfg.back[2];
+    } else {
+        g_orbitCam.rightX = 1.f; g_orbitCam.rightY = 0.f; g_orbitCam.rightZ = 0.f;
+        g_orbitCam.upX = 0.f; g_orbitCam.upY = 1.f; g_orbitCam.upZ = 0.f;
+        g_orbitCam.backX = 0.f; g_orbitCam.backY = 0.f; g_orbitCam.backZ = 1.f;
+    }
+
+    // Orbit around the subject. A recorded target is only used when the caller
+    // asked for one explicitly (all-zero target means "use the centroid").
+    const bool explicitTarget = (cfg.target[0] != 0.f || cfg.target[1] != 0.f || cfg.target[2] != 0.f);
+    if (cfg.hasView && explicitTarget) {
+        g_orbitCam.targetX = cfg.target[0];
+        g_orbitCam.targetY = cfg.target[1];
+        g_orbitCam.targetZ = cfg.target[2];
+    } else {
+        g_orbitCam.targetX = framing.cx;
+        g_orbitCam.targetY = framing.cy;
+        g_orbitCam.targetZ = framing.cz;
+    }
+
+    g_orbitCam.farDistance = (cfg.farDistance > 0.f) ? cfg.farDistance : subjectRadius * 4.0f;
+    g_orbitCam.insideDistance = (cfg.insideDistance > 0.f) ? cfg.insideDistance : subjectRadius * 1.6f;
+    if (g_orbitCam.insideDistance < 0.5f) g_orbitCam.insideDistance = 0.5f;
+    g_orbitCam.distance = g_orbitCam.insideDistance;
+    g_orbitCam.insideView = true;
+    g_orbitCam.LogState("initial");
+
+    // Feed data to the RenderNode via shared globals
+    static_assert(sizeof(GaussianSplatGPU) == sizeof(GpuGaussianData),
+        "GaussianSplatGPU must match GpuGaussianData layout");
+    g_gaussianSplatData = reinterpret_cast<const GpuGaussianData*>(g_lume.splatData.gaussians.data());
+    g_gaussianSplatCount = g_lume.splatData.gaussianCount;
+    g_gaussianShData = g_lume.splatData.sh.empty() ? nullptr : g_lume.splatData.sh.data();
+    g_gaussianDataReady = true;
+
+    // Create the RNG for the gaussian splatting node
+    auto& rngMgr = g_lume.renderContext->GetRenderNodeGraphManager();
+    RENDER_NS::RenderNodeGraphDesc rngDesc {};
+    rngDesc.renderNodeGraphName = "GaussianSplatRNG";
+
+    RENDER_NS::RenderNodeDesc nodeDesc {};
+    nodeDesc.typeName = "RenderNodeGaussianSplatting";
+    nodeDesc.nodeName = "GaussianSplatNode";
+    rngDesc.nodes.push_back(BASE_NS::move(nodeDesc));
+
+    g_lume.splatRngHandle = rngMgr.Create(
+        RENDER_NS::IRenderNodeGraphManager::RenderNodeGraphUsageType::RENDER_NODE_GRAPH_STATIC,
+        rngDesc);
+    LOGI("Gaussian splat RNG created: valid=%{public}d", g_lume.splatRngHandle ? 1 : 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1199,6 +1323,16 @@ void DrawFrame()
     if (!g_lume.ready || !g_lume.engine) {
         return;
     }
+
+    // Apply a pending model switch requested from ArkTS (main thread -> here,
+    // so the RNG/GPU resources are created and released on one thread only).
+    if (g_pendingModelIndex >= 0 && g_pendingModelIndex < kDemoModelCount &&
+        g_pendingModelIndex != g_modelIndex) {
+        g_modelIndex = g_pendingModelIndex;
+        LoadSplatModel();
+        g_forceRenderFrames = 30;
+    }
+    g_pendingModelIndex = -1;
 
     // Update shared camera data for the gaussian splatting RenderNode
     if (g_lume.width > 0 && g_lume.height > 0) {
@@ -1221,54 +1355,8 @@ void DrawFrame()
 
     if (doRender && needsRender && g_lume.graphicsContext && g_lume.renderer) {
         std::memcpy(g_lastRenderedView, g_gaussianCameraData.view, sizeof(g_lastRenderedView));
-        // Check render data store for submitted submeshes
-        if (g_lume.frameCount == 5 || g_lume.frameCount == 10) {
-            // Also check mesh component manager generation counter
-            auto* meshMgr = CORE_NS::GetManager<CORE3D_NS::IMeshComponentManager>(*g_lume.ecs);
-            auto* matMgr = CORE_NS::GetManager<CORE3D_NS::IMaterialComponentManager>(*g_lume.ecs);
-            LOGI("DIAG frame %{public}llu: meshGen=%{public}u meshCount=%{public}u matGen=%{public}u matCount=%{public}u",
-                (unsigned long long)g_lume.frameCount,
-                meshMgr ? (unsigned)meshMgr->GetGenerationCounter() : 0,
-                meshMgr ? meshMgr->GetComponentCount() : 0,
-                matMgr ? (unsigned)matMgr->GetGenerationCounter() : 0,
-                matMgr ? matMgr->GetComponentCount() : 0);
 
-            auto& rdsMgr = g_lume.renderContext->GetRenderDataStoreManager();
-            // Try multiple names (the data store may have a scene prefix)
-            const char* names[] = {
-                "RenderDataStoreDefaultMaterial",
-                "0_RenderDataStoreDefaultMaterial",
-                "RenderDataStoreDefaultMaterial0",
-            };
-            for (auto n : names) {
-                auto ds = rdsMgr.GetRenderDataStore(n);
-                if (ds) {
-                    auto* mat = static_cast<CORE3D_NS::IRenderDataStoreDefaultMaterial*>(ds.get());
-                    auto submeshes = mat->GetSubmeshes();
-                    auto meshData = mat->GetMeshData();
-                    LOGI("DIAG frame %{public}llu ds='%{public}s': submeshes=%{public}zu meshData=%{public}zu",
-                        (unsigned long long)g_lume.frameCount, n, submeshes.size(), meshData.size());
-                } else {
-                    LOGI("DIAG frame %{public}llu ds='%{public}s': NOT FOUND",
-                        (unsigned long long)g_lume.frameCount, n);
-                }
-            }
-        }
         auto rngs = g_lume.graphicsContext->GetRenderNodeGraphs(*g_lume.ecs);
-        if (g_lume.frameCount <= 2) {
-            LOGI("DrawFrame thread: %{public}ld, RNG: %{public}zu",
-                (long)gettid(), rngs.size());
-            // Check CORE_DEFAULT_BACKBUFFER descriptor size
-            auto& gpuResMgr = g_lume.renderContext->GetDevice().GetGpuResourceManager();
-            auto bbHandle = gpuResMgr.GetImageHandle("CORE_DEFAULT_BACKBUFFER");
-            if (bbHandle) {
-                auto desc = gpuResMgr.GetImageDescriptor(bbHandle);
-                LOGI("CORE_DEFAULT_BACKBUFFER: %{public}ux%{public}u format=%{public}u",
-                    desc.width, desc.height, (unsigned)desc.format);
-            } else {
-                LOGE("CORE_DEFAULT_BACKBUFFER handle NOT FOUND");
-            }
-        }
 
         // Append gaussian splatting RNG if available
         if (g_lume.splatRngHandle) {
@@ -1487,19 +1575,14 @@ void DispatchTouchEvent(OH_NativeXComponent* component, void* window)
             if (touchEvent.type == OH_NATIVEXCOMPONENT_UP &&
                 nowMs - g_orbitCam.lastTapTimeMs < 350.0 &&
                 dx*dx + dy*dy < 1600.0f) {
-                if (!g_orbitCam.insideView) {
-                    g_orbitCam.savedDistance = g_orbitCam.distance;
-                    // Model-scale dependent: jump to 5% of the far framing
-                    // (≈1.7 for the fruit bowl, ≈8 for godzilla, ≈70 for doll)
-                    g_orbitCam.distance = (g_orbitCam.savedDistance > 20.f)
-                                              ? g_orbitCam.savedDistance * 0.03f
-                                              : 1.5f;
-                    g_orbitCam.insideView = true;
-                    LOGI("Camera: jump to centre (distance %.2f)", g_orbitCam.distance);
-                } else {
-                    g_orbitCam.distance = (g_orbitCam.savedDistance > 0.5f) ? g_orbitCam.savedDistance : 50.f;
+                if (g_orbitCam.insideView) {
+                    g_orbitCam.distance = g_orbitCam.farDistance;
                     g_orbitCam.insideView = false;
-                    LOGI("Camera: jump back to far view");
+                    LOGI("Camera: far view (distance %{public}.2f)", g_orbitCam.distance);
+                } else {
+                    g_orbitCam.distance = g_orbitCam.insideDistance;
+                    g_orbitCam.insideView = true;
+                    LOGI("Camera: centre view (distance %{public}.2f)", g_orbitCam.distance);
                 }
                 g_orbitCam.lastTapTimeMs = 0.0;
             } else if (touchEvent.type == OH_NATIVEXCOMPONENT_UP) {
@@ -1552,6 +1635,33 @@ static napi_value NapiDrawFrame(napi_env /*env*/, napi_callback_info /*info*/)
     return nullptr;
 }
 
+static napi_value NapiSetModel(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    if (argc < 1 || args[0] == nullptr) {
+        return nullptr;
+    }
+
+    size_t len = 0;
+    napi_get_value_string_utf8(env, args[0], nullptr, 0, &len);
+    std::string name(len, '\0');
+    napi_get_value_string_utf8(env, args[0], &name[0], len + 1, &len);
+
+    for (int i = 0; i < kDemoModelCount; i++) {
+        std::string file = kDemoModels[i].file;
+        // Accept either the full file name ("doll.glb") or the short name ("doll").
+        if (name == file || (name.size() >= 3 && file.compare(0, name.size(), name) == 0)) {
+            g_pendingModelIndex = i;
+            LOGI("setModel: %{public}s -> index %{public}d", name.c_str(), i);
+            return nullptr;
+        }
+    }
+    LOGI("setModel: unknown model '%{public}s'", name.c_str());
+    return nullptr;
+}
+
 static napi_value Init(napi_env env, napi_value exports)
 {
     // Save napi_env for engine initialization later.
@@ -1577,6 +1687,7 @@ static napi_value Init(napi_env env, napi_value exports)
     // Export drawFrame so ArkTS can drive the render loop via setInterval.
     napi_property_descriptor desc[] = {
         {"drawFrame", nullptr, NapiDrawFrame, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setModel", nullptr, NapiSetModel, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"initResourceManager", nullptr, NapiInitResourceManager, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

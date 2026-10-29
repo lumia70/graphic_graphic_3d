@@ -187,7 +187,62 @@ SH 数组，是否参与渲染由管线侧常量决定（当前 DC-only）。
 实测剔除 r>150 的壳体后主体饱和度 0.125→0.195、对比度 0.087→0.190。
 需要按产品形态决定：完全剔除、按相机距离渐隐，或保留（远景才是完整场景外观）。
 
-## 6. 性能
+## 6. 多模型运行时切换与取景
+
+演示 app 通过 ArkTS 按钮在三个模型间运行时切换，核心约束是**资源生命周期**与**取景鲁棒性**。
+
+### 6.1 切换路径（跨线程归口）
+
+```text
+Index.ets Button.onClick -> lumeapp.setModel("doll")
+        ↓ (只写 g_pendingModelIndex，不碰 GPU)
+DrawFrame() 开头：g_modelIndex = pending; LoadSplatModel();
+        ↓ 同一线程先销毁旧 RNG 再建新 RNG
+```
+
+- `setModel` 只记录意图（`g_pendingModelIndex`），真正的加载在渲染线程的 `DrawFrame` 开头执行；
+  ArkTS 主线程不直接创建/释放 RNG，避免与渲染线程并发访问 GPU 资源。
+- `ReleaseSplatModel()` 先清 `splatRngHandle`（`RenderHandleReference` 是引用计数，
+  置空即析构 RenderNode 与其 GPU buffer/PSO），再清共享全局指针，
+  最后 `splatData = SplatData{}` 释放 CPU 数组——顺序反了会让 RenderNode 持有悬空指针。
+- 实测稳定性：连续 9 次切换，`VmRSS` 稳定在 258 MB、fd 数 60 不变，无泄漏。
+- 切换后 `g_forceRenderFrames = 30`，保证首帧就绪；否则按需渲染会一直停在旧 buffer。
+
+### 6.2 每模型配置（`kDemoModels[]`）
+
+| 字段 | 作用 |
+| --- | --- |
+| `fovYDeg` | 垂直 FOV（godzilla 参考实现用 80°，其余 60°）|
+| `shDeg1` / `shDeg23` | SH 阶数开关，经 shader 参数 SSBO 下发 |
+| `hasView` + `right/up/back` | 录制视角的朝向（仅朝向，不含位置）|
+| `target` | 全零表示用加权质心，否则用录制目标点 |
+| `insideDistance` / `farDistance` | `<=0` 表示按主体半径推导 |
+
+### 6.3 取景必须用鲁棒统计，不能用 bounds
+
+原始 bounds 会被**离群点**（房间墙面、环境球壳）拉爆，直接导致相机落进几何体内部：
+fruit_bowl 的 99% 高斯落在 `r < 0.2`（乘 100 世界缩放后 ≈ 20），但 bounds 是 ±20（≈ ±2000）。
+
+`ComputeSplatFraming()` 的做法（O(n)，两次遍历 + 1024 桶直方图）：
+
+1. 用不透明度 sigmoid 为权重求质心（比 bounds 中心更贴合主体）；
+2. 算到质心的距离分布，取 `r50 / r80 / r90`；
+3. 取景：近景 `distance = 1.6 * r80`，远景 `= 4 * r80`，target = 质心。
+
+实测值：
+
+| 模型 | 质心 | r50 / r80 / r90 | 近景 / 远景 |
+| --- | --- | --- | --- |
+| fruit_bowl.ply | (2.01, -4.40, -0.18) | 11.8 / 14.0 / 15.3 | 24.4（推导）/ 57.76（录制参考视角）|
+| godzilla.splat | (-0.12, -0.66, 0.28) | 0.99 / 2.53 / 3.82 | 4.04 / 10.1 |
+| doll.glb | (1.78, -1.57, 0.74) | 4.30 / 40.9 / 220 | 42（参考取景）/ 250 |
+
+- fruit_bowl 的远景保留用户录制视角（`target=(3.887,-1.901,0.268)`、`distance=57.76`），
+  用于与 web 截图做同视角色彩对比；近景改用质心。
+- doll 的 bounds 由环境球壳（半径 437）主导，r80=40.9 仍是壳层，故近景/远景都用显式值。
+- 双击在近景/远景之间切换（`farDistance` / `insideDistance`），不再依赖"上次停留距离"。
+
+## 7. 性能
 
 | 优化 | 效果 |
 | --- | --- |
@@ -197,7 +252,7 @@ SH 数组，是否参与渲染由管线侧常量决定（当前 DC-only）。
 | 65536 桶排序 | 排序成本与 4K 桶基本持平（仍是两遍线性扫描）|
 | 三缓冲 | 消除运动闪烁（非性能项，但避免降频抖动）|
 
-## 7. 调试方法论（可复用）
+## 8. 调试方法论（可复用）
 
 1. **同视角对比**：固定参考视角（相机状态日志 → 硬编码为启动默认），
    用 `snapshot_display` 抓原始 framebuffer；对比图不受"重启后视角回默认"干扰。
@@ -210,10 +265,11 @@ SH 数组，是否参与渲染由管线侧常量决定（当前 DC-only）。
 6. **A/B 构建**：把可疑机制做成 shader 常数（SH 阶数、falloff 变体），
    单次部署验证一个假设。
 
-## 8. 遗留与后续方向
+## 9. 遗留与后续方向
 
 - **SOG 格式加载**（`fruit_bowl.sog`）：开源精简格式，字典/调色板解压。
-- **godzilla.splat / doll.glb**：在新管线（UNORM + DC + 65K 排序）下复测。
+- **多模型**：godzilla.splat / doll.glb / fruit_bowl.ply 已在 UNORM + DC/SH + 65K 排序管线下复测，
+  支持运行时切换（ArkTS 按钮）。
 - **与 PC-web 观感差距**：已定位为手机平台差异（移动 GPU 精度、canvas 分辨率上限、
   浏览器色彩处理）；详见 [移动端与桌面的渲染差异分析](3dgs-mobile-vs-desktop.md)。
   如需进一步贴近，可实现 web viewer 的 grading 后处理
@@ -222,11 +278,11 @@ SH 数组，是否参与渲染由管线侧常量决定（当前 DC-only）。
 - **提交前**：GPU/Shader 行为变更按仓库规则应先执行
   `ohos-dev-graphics-stability-code-review`。
 
-## 9. 代码索引
+## 10. 代码索引
 
 | 路径 | 说明 |
 | --- | --- |
-| `LumeApp/entry/src/main/cpp/render_main.cpp` | 应用侧：引擎初始化、相机（自由滚转 + 参考视角）、触摸交互、按需渲染 |
+| `LumeApp/entry/src/main/cpp/render_main.cpp` | 应用侧：引擎初始化、相机（自由滚转 + 鲁棒取景）、触摸交互、模型运行时切换、按需渲染 |
 | `LumeApp/entry/src/main/cpp/splat_loader.h` | 标准 3DGS PLY 与压缩 .splat 解码 |
 | `LumeApp/entry/src/main/cpp/gaussian_splat_data.*` | 跨 .so 共享数据（C 链接）|
 | `lume/LumeRender/src/node/render_node_gaussian_splatting.*` | 核心 RenderNode：剔除/排序/双 pass/PSO |
