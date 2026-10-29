@@ -457,11 +457,13 @@ inline bool LoadSplatPlyFromMemory(const uint8_t* data, size_t size, SplatData& 
                     memcpy(&idx, data + elVq->dataOffset + (size_t)i * elVq->stride + vqOff, sizeof(uint32_t));
                     if (idx >= elRest->count) continue;  // defensive: malformed input
                     const int8_t* entry = reinterpret_cast<const int8_t*>(codebook + (size_t)idx * elRest->stride);
+                    // NOTE: unlike the PLY layout, the compressed VQ codebook stores
+                    // SH rest coefficient-major (r,g,b per basis), so it is copied as
+                    // is. Verified from the data: per-column magnitudes form period-3
+                    // groups (0.021/0.028/0.050 style scatter would mean channel-major).
                     float* dst = &out.sh[(size_t)i * 48];
-                    for (int c = 0; c < 3; c++) {
-                        for (int j = 0; j < 15; j++) {
-                            dst[j * 3 + c] = (float)entry[c * 15 + j] * restScale + restZeroPoint;
-                        }
+                    for (int m = 0; m < 45; m++) {
+                        dst[m] = (float)entry[m] * restScale + restZeroPoint;
                     }
                 }
             }
