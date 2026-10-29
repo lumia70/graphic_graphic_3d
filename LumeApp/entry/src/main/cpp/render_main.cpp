@@ -2,7 +2,8 @@
  * Lume 3D engine rendering demo — full engine init via XComponent.
  *
  * Phase 3: Initialize the Lume engine with Vulkan backend, create ECS,
- * load a glTF model, set up camera + light, and render via TickFrame.
+ * load a 3D Gaussian Splatting model, set up camera + light, and render via
+ * TickFrame.
  */
 #include <ace/xcomponent/native_interface_xcomponent.h>
 #include <dlfcn.h>
@@ -76,7 +77,6 @@
 #include <3d/ecs/components/world_matrix_component.h>
 #include <3d/ecs/components/material_component.h>
 #include <3d/render/intf_render_data_store_default_material.h>
-#include <3d/gltf/gltf.h>
 #include <3d/implementation_uids.h>
 #include <3d/intf_graphics_context.h>
 #include <3d/util/intf_scene_util.h>
@@ -118,7 +118,6 @@ struct LumeState {
     RENDER_NS::RenderHandleReference swapchainHandle;
 
     // Keep importer alive to prevent EntityReference cleanup from destroying imported entities.
-    CORE3D_NS::IGLTF2Importer::Ptr gltfImporter;
 
     // 3DGS splat data
     SplatData splatData;
@@ -768,92 +767,6 @@ void SetupCameraAndLight()
     LOGI("Directional light created at (2, 4, 2)");
 }
 
-void LoadGltfModel()
-{
-    if (!g_lume.graphicsContext || !g_lume.ecs) {
-        LOGW("Cannot load glTF: missing graphicsContext or ECS");
-        return;
-    }
-
-    auto& gltf = g_lume.graphicsContext->GetGltf();
-    auto& ecs = *g_lume.ecs;
-
-    // Try loading the model.
-    const BASE_NS::string uri = "app://assets/cube.glb";
-    LOGI("Loading glTF: %{public}s", uri.c_str());
-
-    auto loadResult = gltf.LoadGLTF(uri);
-    if (!loadResult.success) {
-        LOGW("glTF load failed: %{public}s — engine will render clear color only",
-            loadResult.error.c_str());
-        return;
-    }
-    LOGI("glTF parsed successfully");
-
-    // Create an importer and import synchronously.
-    // CRITICAL: Store the importer in g_lume to keep it alive. The importer holds EntityReferences
-    // to all imported entities (meshes, materials, buffers). If the importer is destroyed,
-    // the reference counts drop to zero and all imported entities are deleted.
-    g_lume.gltfImporter = gltf.CreateGLTF2Importer(ecs);
-    auto& importer = g_lume.gltfImporter;
-    if (!importer) {
-        LOGE("Failed to create GLTF2 importer");
-        return;
-    }
-
-    CORE3D_NS::GltfImportOptions importOptions {};
-    importer->ImportGLTF(*loadResult.data, importOptions);
-
-    // Drive the import to completion.
-    constexpr uint32_t IMPORT_TIME_BUDGET_MS = 1000;
-    while (!importer->IsCompleted()) {
-        importer->Execute(IMPORT_TIME_BUDGET_MS);
-    }
-
-    auto& importResult = importer->GetResult();
-    if (!importResult.success) {
-        LOGW("glTF import failed — engine will render clear color only");
-        return;
-    }
-    LOGI("glTF imported: %{public}zu meshes, %{public}zu materials, %{public}zu images, %{public}zu textures, %{public}zu skins",
-        importResult.data.meshes.size(),
-        importResult.data.materials.size(),
-        importResult.data.images.size(),
-        importResult.data.textures.size(),
-        importResult.data.skins.size());
-
-    // Import scene 0 into ECS.
-    gltf.ImportGltfScene(0, *loadResult.data, importResult.data, ecs);
-    LOGI("glTF scene imported into ECS");
-
-    // CRITICAL: Force-touch all MeshComponent entities to bump the generation counter.
-    // This ensures RenderSystem detects the mesh as new on the next tick, even if the mesh
-    // was created before RenderSystem's Initialize() registered its event listeners.
-    {
-        auto* meshMgr = CORE_NS::GetManager<CORE3D_NS::IMeshComponentManager>(ecs);
-        if (meshMgr) {
-            for (uint32_t i = 0; i < meshMgr->GetComponentCount(); i++) {
-                auto entity = meshMgr->GetEntity(i);
-                auto handle = meshMgr->Write(entity);
-                // Just writing (even without changes) bumps the generation counter
-                LOGI("Force-touched MeshComponent on entity 0x%{public}llx",
-                    (unsigned long long)entity.id);
-            }
-        }
-        // Also touch materials
-        auto* matMgr = CORE_NS::GetManager<CORE3D_NS::IMaterialComponentManager>(ecs);
-        if (matMgr) {
-            for (uint32_t i = 0; i < matMgr->GetComponentCount(); i++) {
-                auto entity = matMgr->GetEntity(i);
-                auto handle = matMgr->Write(entity);
-                LOGI("Force-touched MaterialComponent on entity 0x%{public}llx",
-                    (unsigned long long)entity.id);
-            }
-        }
-    }
-
-}
-
 // Demo models and their per-model rendering configuration.
 struct DemoModelConfig {
     const char* file;
@@ -1238,9 +1151,6 @@ void OnSurfaceCreated(OH_NativeXComponent* component, void* window)
         DrawFrame();
         LOGI("First tick completed — RenderSystem initialized, now loading model");
 
-        // glTF demo cube disabled — 3DGS-only debugging (the Lume scene pass
-        // still runs and provides the backbuffer + clear color).
-        // LoadGltfModel();
 
         // Load 3DGS splat data (if available)
         LoadSplatModel();

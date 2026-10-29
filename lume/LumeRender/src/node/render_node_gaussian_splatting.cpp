@@ -534,6 +534,7 @@ void RenderNodeGaussianSplatting::ensureSortThread()
 
 void RenderNodeGaussianSplatting::logSortStats(float totalMs, float cullMs, float histMs, float scatterMs)
 {
+#if (RENDER_DEV_ENABLED == 1)
     auto accumulate = [](float (&stat)[3], float v) {
         if (v < stat[0]) stat[0] = v;
         if (v > stat[2]) stat[2] = v;
@@ -560,6 +561,12 @@ void RenderNodeGaussianSplatting::logSortStats(float totalMs, float cullMs, floa
         }
         statCount_ = 0;
     }
+#else
+    (void)totalMs;
+    (void)cullMs;
+    (void)histMs;
+    (void)scatterMs;
+#endif
 }
 
 // ===================================================================
@@ -832,7 +839,9 @@ void RenderNodeGaussianSplatting::PreExecuteFrame()
 // ===================================================================
 void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
 {
+#if (RENDER_DEV_ENABLED == 1)
     const auto execBegin = std::chrono::steady_clock::now();
+#endif
     if (!initialized_ || gaussianCount_ == 0) return;
     if (!RenderHandleUtil::IsValid(psoHandle_)) {
         if (frameCount_ < 3) {
@@ -1226,6 +1235,7 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
         cmdList.EndRenderPass();
     }
 
+#if (RENDER_DEV_ENABLED == 1)
     {
         const float execMs = std::chrono::duration<float, std::milli>(
             std::chrono::steady_clock::now() - execBegin).count();
@@ -1242,6 +1252,7 @@ void RenderNodeGaussianSplatting::ExecuteFrame(IRenderCommandList& cmdList)
             execCount_ = 0;
         }
     }
+#endif
 
     if (frameCount_ < 3 || (frameCount_ % 300 == 0)) {
         PLUGIN_LOG_I("GS::ExecuteFrame #%u: %u/%u visible, %ux%u",
